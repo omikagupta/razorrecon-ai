@@ -7,10 +7,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
+    app_name: str = "RazorRecon AI"
     app_env: str = "development"
+
     database_url: str
+
     llm_provider: str = "none"
     llm_model: str = ""
+
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

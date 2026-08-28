@@ -1,20 +1,21 @@
 from decimal import Decimal
 
-# Amount tolerance for reconciliation.
-# For now, exact matching is used.
-AMOUNT_TOLERANCE = Decimal("0.01")
-
 
 def amounts_match(
     payment_amount: Decimal,
     settlement_amount: Decimal,
 ) -> bool:
-    """Check whether payment and settlement amounts match within the configured tolerance."""
+    """
+    Check whether payment and settlement amounts match exactly.
+
+    Financial reconciliation uses exact currency values. A difference
+    of even 0.01 is treated as a genuine mismatch and should be
+    investigated or explained by fees/adjustments.
+    """
     if payment_amount is None or settlement_amount is None:
         return False
 
-    difference = abs(
-        Decimal(payment_amount) - Decimal(settlement_amount)
-    )
+    payment = Decimal(str(payment_amount))
+    settlement = Decimal(str(settlement_amount))
 
-    return difference <= AMOUNT_TOLERANCE
+    return payment == settlement
