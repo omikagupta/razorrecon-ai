@@ -1,7 +1,14 @@
-.env
-.venv/
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.*
 
 # Local databases
 *.db
@@ -11,3 +18,15 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
