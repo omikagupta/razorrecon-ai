@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.ai.investigation.exception_analyzer import (
+    investigate_exception,
+)
 from app.db.session import SessionLocal
 from app.models.reconciliation import (
     AuditLog,
@@ -128,7 +131,7 @@ def exception_analytics(
 
 
 # =========================================================
-# EXCEPTION INVESTIGATION
+# EXCEPTION INVESTIGATION DETAILS
 # =========================================================
 
 @router.get("/{exception_id}")
@@ -245,6 +248,45 @@ def get_exception(
             for log in audit_logs
         ],
     }
+
+
+# =========================================================
+# AI INVESTIGATION
+# =========================================================
+
+@router.post("/{exception_id}/investigate")
+def investigate_exception_endpoint(
+    exception_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Perform an AI-assisted investigation of a reconciliation exception.
+
+    The investigation combines deterministic reconciliation intelligence,
+    supporting evidence, and an optional AI provider.
+
+    If no AI provider is configured, the endpoint gracefully returns
+    deterministic analysis.
+    """
+
+    exception = (
+        db.query(ExceptionRecord)
+        .filter(
+            ExceptionRecord.exception_id == exception_id
+        )
+        .first()
+    )
+
+    if exception is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Exception {exception_id} not found.",
+        )
+
+    return investigate_exception(
+        db=db,
+        exception=exception,
+    )
 
 
 # =========================================================
