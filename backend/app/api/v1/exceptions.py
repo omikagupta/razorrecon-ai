@@ -1,7 +1,8 @@
+
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.ai.investigation.exception_analyzer import (
@@ -49,6 +50,85 @@ class HumanReviewRequest(BaseModel):
     reviewer: str
     action: str
     reason: str
+
+
+# =========================================================
+# AI INVESTIGATION RESPONSE MODELS
+# =========================================================
+
+class AIInvestigationResponse(BaseModel):
+    """
+    Structured AI investigation result exposed by the API.
+    """
+
+    summary: str = Field(
+        min_length=1,
+        description="Concise investigation summary.",
+    )
+
+    root_cause: str = Field(
+        min_length=1,
+        description="Most likely root cause based on evidence.",
+    )
+
+    risk_level: str = Field(
+        description="Risk level assigned by the AI investigation.",
+    )
+
+    recommended_action: str = Field(
+        description="Recommended operational action.",
+    )
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="AI confidence score between 0 and 1.",
+    )
+
+    key_evidence: list[str] = Field(
+        default_factory=list,
+        description="Evidence supporting the investigation.",
+    )
+
+    unresolved_questions: list[str] = Field(
+        default_factory=list,
+        description="Questions that remain unresolved.",
+    )
+
+
+class InvestigationResponse(BaseModel):
+    """
+    Production API response for an exception investigation.
+    """
+
+    exception_id: str = Field(
+        description="Unique reconciliation exception ID.",
+    )
+
+    investigation_mode: str = Field(
+        description=(
+            "Investigation mode: AI_ASSISTED or "
+            "DETERMINISTIC_FALLBACK."
+        ),
+    )
+
+    ai_provider_status: str = Field(
+        description=(
+            "AI provider state: SUCCESS, UNAVAILABLE, "
+            "or INVALID_RESPONSE."
+        ),
+    )
+
+    evidence_count: int = Field(
+        ge=0,
+        description="Number of evidence records considered.",
+    )
+
+    deterministic_analysis: dict
+
+    ai_analysis: AIInvestigationResponse | None = None
+
+    fallback_reason: str | None = None
 
 
 # =========================================================
@@ -254,20 +334,60 @@ def get_exception(
 # AI INVESTIGATION
 # =========================================================
 
-@router.post("/{exception_id}/investigate")
+@router.post(
+    "/{exception_id}/investigate",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Investigate a reconciliation exception",
+    description=(
+        "Perform a structured AI-assisted investigation of "
+        "a reconciliation exception. The investigation combines "
+        "deterministic financial analysis, evidence, and an AI "
+        "provider. If the AI provider is unavailable or returns "
+        "an invalid response, the system safely falls back to "
+        "deterministic analysis."
+    ),
+    responses={
+        404: {
+            "description": "Exception not found.",
+        },
+        500: {
+            "description": "Unexpected investigation failure.",
+        },
+    },
+)
 def investigate_exception_endpoint(
     exception_id: str,
     db: Session = Depends(get_db),
-):
+) -> InvestigationResponse:
     """
-    Perform an AI-assisted investigation of a reconciliation exception.
+    Perform a production-grade investigation of an exception.
 
-    The investigation combines deterministic reconciliation intelligence,
-    supporting evidence, and an optional AI provider.
+    Investigation flow:
 
-    If no AI provider is configured, the endpoint gracefully returns
-    deterministic analysis.
+        Exception
+            ↓
+        Deterministic Analysis
+            ↓
+        Evidence Collection
+            ↓
+        AI Investigation
+            ↓
+        Structured Validation
+            ↓
+        API Response
+
+    Expected AI provider failures are handled by the
+    investigation service and returned as deterministic
+    fallbacks.
+
+    Unexpected application failures are surfaced as
+    HTTP 500 errors instead of being silently hidden.
     """
+
+    # ---------------------------------------------------------
+    # 1. Find exception
+    # ---------------------------------------------------------
 
     exception = (
         db.query(ExceptionRecord)
@@ -279,14 +399,81 @@ def investigate_exception_endpoint(
 
     if exception is None:
         raise HTTPException(
-            status_code=404,
-            detail=f"Exception {exception_id} not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "EXCEPTION_NOT_FOUND",
+                "message": (
+                    f"Exception {exception_id} not found."
+                ),
+                "exception_id": exception_id,
+            },
         )
 
-    return investigate_exception(
-        db=db,
-        exception=exception,
-    )
+    # ---------------------------------------------------------
+    # 2. Run investigation
+    # ---------------------------------------------------------
+
+    try:
+        result = investigate_exception(
+            db=db,
+            exception=exception,
+        )
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INVESTIGATION_RUNTIME_ERROR",
+                "message": (
+                    "The investigation could not be completed."
+                ),
+                "exception_id": exception_id,
+                "reason": str(error),
+            },
+        ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INVESTIGATION_FAILED",
+                "message": (
+                    "An unexpected error occurred while "
+                    "investigating the exception."
+                ),
+                "exception_id": exception_id,
+                "reason": str(error),
+            },
+        ) from error
+
+    # ---------------------------------------------------------
+    # 3. Validate API-level response structure
+    # ---------------------------------------------------------
+
+    try:
+        validated_response = (
+            InvestigationResponse.model_validate(result)
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INVALID_INVESTIGATION_RESULT",
+                "message": (
+                    "The investigation service returned "
+                    "an invalid structured result."
+                ),
+                "exception_id": exception_id,
+                "reason": str(error),
+            },
+        ) from error
+
+    # ---------------------------------------------------------
+    # 4. Return clean structured response
+    # ---------------------------------------------------------
+
+    return validated_response
 
 
 # =========================================================

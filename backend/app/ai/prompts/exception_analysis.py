@@ -1,4 +1,5 @@
 from decimal import Decimal
+import json
 
 from app.models.reconciliation import ExceptionRecord
 
@@ -10,10 +11,6 @@ def build_exception_analysis_prompt(
 ) -> str:
     """
     Build a structured prompt for AI-powered exception analysis.
-
-    The AI receives deterministic reconciliation intelligence and
-    supporting evidence, then produces a human-readable investigation
-    summary and risk assessment.
     """
 
     evidence_text = "\n".join(
@@ -34,44 +31,39 @@ def build_exception_analysis_prompt(
         Decimal("0.0000"),
     )
 
+    response_schema = {
+        "summary": "Brief explanation of the exception",
+        "root_cause": "Most likely root cause",
+        "risk_level": "LOW | MEDIUM | HIGH | CRITICAL",
+        "recommended_action": (
+            "AUTO_RESOLVE | HUMAN_REVIEW | ESCALATE"
+        ),
+        "confidence": 0.0,
+        "key_evidence": [
+            "Evidence point 1",
+            "Evidence point 2",
+        ],
+        "unresolved_questions": [
+            "Question 1",
+            "Question 2",
+        ],
+    }
+
     prompt = f"""
 You are an AI financial reconciliation investigator.
 
-Your role is to analyze reconciliation exceptions using the
-provided deterministic analysis and supporting financial evidence.
+Analyze the reconciliation exception using ONLY the deterministic
+analysis and supporting evidence provided below.
 
-Do not invent financial facts.
+CRITICAL RULES:
+- Do not invent financial facts.
+- Clearly distinguish evidence-based conclusions from uncertainty.
+- Do not output markdown.
+- Do not wrap the response in ```json.
+- Return ONLY valid JSON.
+- The response MUST follow this exact structure:
 
-You must distinguish clearly between:
-- confirmed facts
-- likely explanations
-- unresolved risks
-
-Return a concise investigation report in the following format:
-
-SUMMARY:
-<brief explanation of the exception>
-
-ROOT_CAUSE:
-<most likely root cause>
-
-RISK_LEVEL:
-LOW | MEDIUM | HIGH | CRITICAL
-
-RECOMMENDED_ACTION:
-AUTO_RESOLVE | HUMAN_REVIEW | ESCALATE
-
-CONFIDENCE:
-<number between 0 and 1>
-
-KEY_EVIDENCE:
-- evidence point 1
-- evidence point 2
-
-UNRESOLVED_QUESTIONS:
-- question 1
-- question 2
-
+{json.dumps(response_schema, indent=2)}
 
 EXCEPTION DETAILS
 
