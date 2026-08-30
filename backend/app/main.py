@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from sqlalchemy import text
+from app.api.v1.reconciliation_runs import router as reconciliation_runs_router
 
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.exceptions import router as exceptions_router
@@ -43,7 +44,7 @@ app = FastAPI(
 app.include_router(exceptions_router)
 app.include_router(dashboard_router)
 
-
+app.include_router(reconciliation_runs_router)
 # ------------------------------------------------------------------
 # System Endpoints
 # ------------------------------------------------------------------
