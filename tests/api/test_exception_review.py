@@ -55,7 +55,7 @@ def test_invalid_review_action():
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_empty_reviewer_rejected():
@@ -72,7 +72,7 @@ def test_empty_reviewer_rejected():
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_empty_reason_rejected():
@@ -89,4 +89,4 @@ def test_empty_reason_rejected():
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422

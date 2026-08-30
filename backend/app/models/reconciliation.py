@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Numeric, String, Text
+from sqlalchemy import DateTime, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -181,7 +181,66 @@ class Evidence(Base):
         default=datetime.utcnow,
         nullable=False,
     )
+class Investigation(Base):
+    """
+    Persisted record of an AI-assisted exception investigation.
 
+    Multiple investigations may exist for the same exception,
+    allowing investigation history and comparison over time.
+    """
+
+    __tablename__ = "investigations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    investigation_id: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    exception_id: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    investigation_mode: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    ai_provider_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    evidence_count: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+    )
+
+    deterministic_analysis: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+
+    ai_analysis: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    fallback_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
 
 class HumanReview(Base):
     __tablename__ = "human_reviews"

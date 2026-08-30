@@ -10,6 +10,25 @@ from app.db.session import engine
 app = FastAPI(
     title=settings.app_name,
     version="0.2.0",
+    contact={"name": "RazorRecon AI"},
+    license_info={"name": "Proprietary"},
+    openapi_tags=[
+        {
+            "name": "System",
+            "description": "Service availability and API metadata.",
+        },
+        {
+            "name": "Exceptions",
+            "description": (
+                "Reconciliation exception lookup, analytics, "
+                "investigation, and human-review workflows."
+            ),
+        },
+        {
+            "name": "Dashboard",
+            "description": "Aggregate reconciliation and exception metrics.",
+        },
+    ],
     description=(
         "RazorRecon AI — Intelligent financial reconciliation "
         "and exception management platform."

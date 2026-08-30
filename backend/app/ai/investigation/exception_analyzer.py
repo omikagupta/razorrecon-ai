@@ -1,7 +1,9 @@
 import json
 
 from sqlalchemy.orm import Session
-
+from app.services.investigation.persistence import (
+    persist_investigation,
+)
 from app.ai.prompts.exception_analysis import (
     build_exception_analysis_prompt,
 )
@@ -51,15 +53,16 @@ def investigate_exception(
     exception: ExceptionRecord,
 ) -> dict:
     """
-    Perform an AI-assisted investigation of a reconciliation exception.
+    Perform and persist an AI-assisted investigation of a
+    reconciliation exception.
 
-    Investigation pipeline:
+    The investigation pipeline combines:
     1. Deterministic reconciliation intelligence
     2. Supporting financial evidence
     3. Structured prompt construction
     4. AI-generated structured investigation
     5. Pydantic validation
-    6. Deterministic fallback on AI failure
+    6. Durable investigation persistence
     """
 
     # ---------------------------------------------------------
@@ -75,10 +78,24 @@ def investigate_exception(
     # 2. Collect evidence
     # ---------------------------------------------------------
 
-    evidence = collect_evidence(
-        db=db,
-        exception_id=exception.exception_id,
+    evidence_records = (
+        db.query(Evidence)
+        .filter(
+            Evidence.exception_id == exception.exception_id
+        )
+        .order_by(Evidence.id)
+        .all()
     )
+
+    evidence = [
+        {
+            "evidence_type": item.evidence_type,
+            "source_table": item.source_table,
+            "source_record_id": item.source_record_id,
+            "description": item.description,
+        }
+        for item in evidence_records
+    ]
 
     # ---------------------------------------------------------
     # 3. Build investigation prompt
@@ -98,8 +115,26 @@ def investigate_exception(
         provider = get_ai_provider()
         ai_response = provider.generate(prompt)
 
+        parsed_response = json.loads(ai_response)
+
+        validated_report = (
+            AIInvestigationReport.model_validate(
+                parsed_response
+            )
+        )
+
+        result = {
+            "exception_id": exception.exception_id,
+            "investigation_mode": "AI_ASSISTED",
+            "deterministic_analysis": intelligence,
+            "evidence_count": len(evidence),
+            "ai_analysis": validated_report.model_dump(),
+            "ai_provider_status": "SUCCESS",
+            "fallback_reason": None,
+        }
+
     except RuntimeError as error:
-        return {
+        result = {
             "exception_id": exception.exception_id,
             "investigation_mode": "DETERMINISTIC_FALLBACK",
             "deterministic_analysis": intelligence,
@@ -109,21 +144,11 @@ def investigate_exception(
             "ai_provider_status": "UNAVAILABLE",
         }
 
-    # ---------------------------------------------------------
-    # 5. Parse and validate AI response
-    # ---------------------------------------------------------
-
-    try:
-        parsed_response = json.loads(ai_response)
-
-        validated_report = (
-            AIInvestigationReport.model_validate(
-                parsed_response
-            )
-        )
-
-    except (json.JSONDecodeError, ValueError) as error:
-        return {
+    except (
+        json.JSONDecodeError,
+        ValueError,
+    ) as error:
+        result = {
             "exception_id": exception.exception_id,
             "investigation_mode": "DETERMINISTIC_FALLBACK",
             "deterministic_analysis": intelligence,
@@ -136,17 +161,21 @@ def investigate_exception(
         }
 
     # ---------------------------------------------------------
-    # 6. Return validated AI investigation
+    # 5. Persist investigation
     # ---------------------------------------------------------
 
-    return {
-        "exception_id": exception.exception_id,
-        "investigation_mode": "AI_ASSISTED",
-        "deterministic_analysis": intelligence,
-        "evidence_count": len(evidence),
-        "ai_analysis": validated_report.model_dump(),
-        "ai_provider_status": "SUCCESS",
-    }
+    persisted_investigation = persist_investigation(
+        db=db,
+        investigation_result=result,
+    )
+
+    # Include the durable investigation identifier in the
+    # response so future APIs can retrieve investigation history.
+    result["investigation_id"] = (
+        persisted_investigation.investigation_id
+    )
+
+    return result
 
 
 def investigate_all_open_exceptions(

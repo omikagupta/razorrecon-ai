@@ -1,8 +1,7 @@
-
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.ai.investigation.exception_analyzer import (
@@ -47,9 +46,99 @@ def get_db():
 # =========================================================
 
 class HumanReviewRequest(BaseModel):
+    """
+    Request payload for a human review action.
+    """
+
+    reviewer: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Name or identifier of the reviewer.",
+    )
+
+    action: str = Field(
+        min_length=1,
+        max_length=50,
+        description=(
+            "Review action: APPROVE, REJECT, or ESCALATE."
+        ),
+    )
+
+    reason: str = Field(
+        min_length=1,
+        description="Reason supporting the review decision.",
+    )
+
+    @field_validator("reviewer")
+    @classmethod
+    def validate_reviewer(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "Reviewer cannot be empty."
+            )
+
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "Review reason cannot be empty."
+            )
+
+        return value
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str) -> str:
+        action = value.upper().strip()
+
+        allowed_actions = {
+            "APPROVE",
+            "REJECT",
+            "ESCALATE",
+        }
+
+        if action not in allowed_actions:
+            raise ValueError(
+                "Invalid review action. "
+                "Allowed actions: APPROVE, REJECT, ESCALATE."
+            )
+
+        return action
+
+
+# =========================================================
+# HUMAN REVIEW RESPONSE MODEL
+# =========================================================
+
+class HumanReviewResponse(BaseModel):
+    """
+    Structured response returned after a human review.
+    """
+
+    message: str
+
+    exception_id: str
+
+    transaction_id: str
+
     reviewer: str
+
     action: str
+
+    previous_state: str
+
+    new_state: str
+
     reason: str
+
+    resolved_at: datetime | None = None
 
 
 # =========================================================
@@ -339,22 +428,6 @@ def get_exception(
     response_model=InvestigationResponse,
     status_code=status.HTTP_200_OK,
     summary="Investigate a reconciliation exception",
-    description=(
-        "Perform a structured AI-assisted investigation of "
-        "a reconciliation exception. The investigation combines "
-        "deterministic financial analysis, evidence, and an AI "
-        "provider. If the AI provider is unavailable or returns "
-        "an invalid response, the system safely falls back to "
-        "deterministic analysis."
-    ),
-    responses={
-        404: {
-            "description": "Exception not found.",
-        },
-        500: {
-            "description": "Unexpected investigation failure.",
-        },
-    },
 )
 def investigate_exception_endpoint(
     exception_id: str,
@@ -362,32 +435,7 @@ def investigate_exception_endpoint(
 ) -> InvestigationResponse:
     """
     Perform a production-grade investigation of an exception.
-
-    Investigation flow:
-
-        Exception
-            ↓
-        Deterministic Analysis
-            ↓
-        Evidence Collection
-            ↓
-        AI Investigation
-            ↓
-        Structured Validation
-            ↓
-        API Response
-
-    Expected AI provider failures are handled by the
-    investigation service and returned as deterministic
-    fallbacks.
-
-    Unexpected application failures are surfaced as
-    HTTP 500 errors instead of being silently hidden.
     """
-
-    # ---------------------------------------------------------
-    # 1. Find exception
-    # ---------------------------------------------------------
 
     exception = (
         db.query(ExceptionRecord)
@@ -408,10 +456,6 @@ def investigate_exception_endpoint(
                 "exception_id": exception_id,
             },
         )
-
-    # ---------------------------------------------------------
-    # 2. Run investigation
-    # ---------------------------------------------------------
 
     try:
         result = investigate_exception(
@@ -446,10 +490,6 @@ def investigate_exception_endpoint(
             },
         ) from error
 
-    # ---------------------------------------------------------
-    # 3. Validate API-level response structure
-    # ---------------------------------------------------------
-
     try:
         validated_response = (
             InvestigationResponse.model_validate(result)
@@ -469,10 +509,6 @@ def investigate_exception_endpoint(
             },
         ) from error
 
-    # ---------------------------------------------------------
-    # 4. Return clean structured response
-    # ---------------------------------------------------------
-
     return validated_response
 
 
@@ -480,16 +516,36 @@ def investigate_exception_endpoint(
 # HUMAN REVIEW
 # =========================================================
 
-@router.post("/{exception_id}/review")
+@router.post(
+    "/{exception_id}/review",
+    response_model=HumanReviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Review a reconciliation exception",
+    description=(
+        "Record a human decision for an open reconciliation "
+        "exception and update its lifecycle state."
+    ),
+    responses={
+        404: {
+            "description": "Exception not found.",
+        },
+        409: {
+            "description": "Exception is not open for review.",
+        },
+        500: {
+            "description": "Failed to persist review.",
+        },
+    },
+)
 def review_exception(
     exception_id: str,
     review: HumanReviewRequest,
     db: Session = Depends(get_db),
-):
+) -> HumanReviewResponse:
     """
-    Perform a human review of an exception.
+    Perform a production-grade human review.
 
-    Supported actions:
+    State transitions:
 
     APPROVE:
         OPEN -> RESOLVED
@@ -499,7 +555,21 @@ def review_exception(
 
     ESCALATE:
         OPEN -> ESCALATED
+
+    The operation is persisted atomically:
+
+        Exception update
+            +
+        Human review record
+            +
+        Audit log
+            =
+        Single database transaction
     """
+
+    # -----------------------------------------------------
+    # 1. Find exception
+    # -----------------------------------------------------
 
     exception = (
         db.query(ExceptionRecord)
@@ -511,113 +581,124 @@ def review_exception(
 
     if exception is None:
         raise HTTPException(
-            status_code=404,
-            detail=f"Exception {exception_id} not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "EXCEPTION_NOT_FOUND",
+                "message": (
+                    f"Exception {exception_id} not found."
+                ),
+                "exception_id": exception_id,
+            },
         )
 
-    action = review.action.upper().strip()
-
-    allowed_actions = {
-        "APPROVE",
-        "REJECT",
-        "ESCALATE",
-    }
-
-    if action not in allowed_actions:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid review action. "
-                "Allowed actions: APPROVE, REJECT, ESCALATE."
-            ),
-        )
+    # -----------------------------------------------------
+    # 2. Validate current lifecycle state
+    # -----------------------------------------------------
 
     if exception.status != "OPEN":
         raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Exception {exception_id} is already "
-                f"in status {exception.status}."
-            ),
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "INVALID_EXCEPTION_STATE",
+                "message": (
+                    "Only OPEN exceptions can be reviewed."
+                ),
+                "exception_id": exception_id,
+                "current_status": exception.status,
+            },
         )
 
-    if not review.reviewer.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Reviewer cannot be empty.",
-        )
-
-    if not review.reason.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Review reason cannot be empty.",
-        )
+    # -----------------------------------------------------
+    # 3. Determine state transition
+    # -----------------------------------------------------
 
     previous_state = exception.status
 
-    if action == "APPROVE":
-        new_state = "RESOLVED"
-        audit_action = "EXCEPTION_RESOLVED"
+    action_mapping = {
+        "APPROVE": {
+            "new_state": "RESOLVED",
+            "audit_action": "EXCEPTION_RESOLVED",
+        },
+        "REJECT": {
+            "new_state": "ESCALATED",
+            "audit_action": "EXCEPTION_REJECTED",
+        },
+        "ESCALATE": {
+            "new_state": "ESCALATED",
+            "audit_action": "EXCEPTION_ESCALATED",
+        },
+    }
 
-    elif action == "REJECT":
-        new_state = "ESCALATED"
-        audit_action = "EXCEPTION_REJECTED"
+    transition = action_mapping[review.action]
 
-    else:
-        new_state = "ESCALATED"
-        audit_action = "EXCEPTION_ESCALATED"
+    new_state = transition["new_state"]
+    audit_action = transition["audit_action"]
 
     # -----------------------------------------------------
-    # Update exception
+    # 4. Apply changes atomically
     # -----------------------------------------------------
 
-    exception.status = new_state
+    try:
+        exception.status = new_state
 
-    if new_state == "RESOLVED":
-        exception.resolved_at = datetime.utcnow()
+        if new_state == "RESOLVED":
+            exception.resolved_at = datetime.utcnow()
+
+        human_review = HumanReview(
+            exception_id=exception.exception_id,
+            reviewer=review.reviewer,
+            action=review.action,
+            reason=review.reason,
+            created_at=datetime.utcnow(),
+        )
+
+        db.add(human_review)
+
+        audit_log = AuditLog(
+            transaction_id=exception.transaction_id,
+            actor=review.reviewer,
+            action=audit_action,
+            previous_state=previous_state,
+            new_state=new_state,
+            reason=review.reason,
+            confidence=exception.confidence,
+            created_at=datetime.utcnow(),
+        )
+
+        db.add(audit_log)
+
+        db.commit()
+        db.refresh(exception)
+
+    except Exception as error:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "HUMAN_REVIEW_PERSISTENCE_FAILED",
+                "message": (
+                    "The human review could not be saved."
+                ),
+                "exception_id": exception_id,
+                "reason": str(error),
+            },
+        ) from error
 
     # -----------------------------------------------------
-    # Create human review record
+    # 5. Return structured response
     # -----------------------------------------------------
 
-    human_review = HumanReview(
+    return HumanReviewResponse(
+        message=(
+            "Exception review recorded successfully."
+        ),
         exception_id=exception.exception_id,
-        reviewer=review.reviewer.strip(),
-        action=action,
-        reason=review.reason.strip(),
-        created_at=datetime.utcnow(),
-    )
-
-    db.add(human_review)
-
-    # -----------------------------------------------------
-    # Create audit log
-    # -----------------------------------------------------
-
-    audit_log = AuditLog(
         transaction_id=exception.transaction_id,
-        actor=review.reviewer.strip(),
-        action=audit_action,
+        reviewer=review.reviewer,
+        action=review.action,
         previous_state=previous_state,
         new_state=new_state,
-        reason=review.reason.strip(),
-        confidence=exception.confidence,
-        created_at=datetime.utcnow(),
+        reason=review.reason,
+        resolved_at=exception.resolved_at,
     )
-
-    db.add(audit_log)
-
-    db.commit()
-    db.refresh(exception)
-
-    return {
-        "message": "Exception review recorded successfully.",
-        "exception_id": exception.exception_id,
-        "transaction_id": exception.transaction_id,
-        "reviewer": review.reviewer.strip(),
-        "action": action,
-        "previous_state": previous_state,
-        "new_state": new_state,
-        "reason": review.reason.strip(),
-        "resolved_at": exception.resolved_at,
-    }
