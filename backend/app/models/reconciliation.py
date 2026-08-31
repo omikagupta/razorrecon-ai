@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime,UTC
 from decimal import Decimal
 
 from sqlalchemy import DateTime, JSON, Numeric, String, Text
@@ -26,7 +26,7 @@ class ReconciliationRun(Base):
     exception_count: Mapped[int] = mapped_column(default=0)
     started_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+       default=lambda: datetime.now(UTC),
         nullable=False,
     )
     completed_at: Mapped[datetime | None] = mapped_column(
@@ -84,7 +84,7 @@ class ReconciliationResult(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -135,7 +135,7 @@ class ExceptionRecord(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -178,7 +178,7 @@ class Evidence(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+       default=lambda: datetime.now(UTC),
         nullable=False,
     )
 class Investigation(Base):
@@ -238,7 +238,7 @@ class Investigation(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -270,7 +270,7 @@ class HumanReview(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+      default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -318,6 +318,6 @@ class AuditLog(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )

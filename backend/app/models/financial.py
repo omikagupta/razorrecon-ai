@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, Numeric, String
@@ -20,7 +20,7 @@ class Merchant(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -55,7 +55,7 @@ class Order(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+       default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -193,7 +193,7 @@ class Fee(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -223,6 +223,6 @@ class Adjustment(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+       default=lambda: datetime.now(UTC),
         nullable=False,
     )

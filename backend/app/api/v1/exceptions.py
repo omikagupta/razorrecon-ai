@@ -1,5 +1,7 @@
-from datetime import datetime, UTC
-
+﻿from datetime import datetime, UTC
+from app.services.reconciliation.exception_service import (
+    ExceptionService,
+)
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -545,38 +547,17 @@ def review_exception(
     """
     Perform a production-grade human review.
 
-    State transitions:
-
-    APPROVE:
-        OPEN -> RESOLVED
-
-    REJECT:
-        OPEN -> ESCALATED
-
-    ESCALATE:
-        OPEN -> ESCALATED
-
-    The operation is persisted atomically:
-
-        Exception update
-            +
-        Human review record
-            +
-        Audit log
-            =
-        Single database transaction
+    Business logic is delegated to ExceptionService.
     """
+
+    service = ExceptionService(db)
 
     # -----------------------------------------------------
     # 1. Find exception
     # -----------------------------------------------------
 
-    exception = (
-        db.query(ExceptionRecord)
-        .filter(
-            ExceptionRecord.exception_id == exception_id
-        )
-        .first()
+    exception = service.get_exception_by_id(
+        exception_id
     )
 
     if exception is None:
@@ -592,7 +573,7 @@ def review_exception(
         )
 
     # -----------------------------------------------------
-    # 2. Validate current lifecycle state
+    # 2. Validate lifecycle state
     # -----------------------------------------------------
 
     if exception.status != "OPEN":
@@ -608,71 +589,21 @@ def review_exception(
             },
         )
 
-    # -----------------------------------------------------
-    # 3. Determine state transition
-    # -----------------------------------------------------
-
     previous_state = exception.status
 
-    action_mapping = {
-        "APPROVE": {
-            "new_state": "RESOLVED",
-            "audit_action": "EXCEPTION_RESOLVED",
-        },
-        "REJECT": {
-            "new_state": "ESCALATED",
-            "audit_action": "EXCEPTION_REJECTED",
-        },
-        "ESCALATE": {
-            "new_state": "ESCALATED",
-            "audit_action": "EXCEPTION_ESCALATED",
-        },
-    }
-
-    transition = action_mapping[review.action]
-
-    new_state = transition["new_state"]
-    audit_action = transition["audit_action"]
-
     # -----------------------------------------------------
-    # 4. Apply changes atomically
+    # 3. Delegate business operation to service
     # -----------------------------------------------------
 
     try:
-        exception.status = new_state
-
-        if new_state == "RESOLVED":
-            exception.resolved_at = datetime.now(UTC)
-
-        human_review = HumanReview(
-            exception_id=exception.exception_id,
+        result = service.review_exception(
+            exception=exception,
             reviewer=review.reviewer,
             action=review.action,
             reason=review.reason,
-           created_at=datetime.now(UTC),
         )
-
-        db.add(human_review)
-
-        audit_log = AuditLog(
-            transaction_id=exception.transaction_id,
-            actor=review.reviewer,
-            action=audit_action,
-            previous_state=previous_state,
-            new_state=new_state,
-            reason=review.reason,
-            confidence=exception.confidence,
-            created_at=datetime.now(UTC),
-        )
-
-        db.add(audit_log)
-
-        db.commit()
-        db.refresh(exception)
 
     except Exception as error:
-        db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -686,19 +617,21 @@ def review_exception(
         ) from error
 
     # -----------------------------------------------------
-    # 5. Return structured response
+    # 4. Return structured response
     # -----------------------------------------------------
+
+    reviewed_exception = result["exception"]
 
     return HumanReviewResponse(
         message=(
             "Exception review recorded successfully."
         ),
-        exception_id=exception.exception_id,
-        transaction_id=exception.transaction_id,
+        exception_id=reviewed_exception.exception_id,
+        transaction_id=reviewed_exception.transaction_id,
         reviewer=review.reviewer,
         action=review.action,
         previous_state=previous_state,
-        new_state=new_state,
+        new_state=result["new_state"],
         reason=review.reason,
-        resolved_at=exception.resolved_at,
+        resolved_at=reviewed_exception.resolved_at,
     )
