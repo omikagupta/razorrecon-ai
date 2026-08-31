@@ -1,7 +1,14 @@
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.services.reconciliation.engine import (
+    run_payment_settlement_reconciliation,
+)
+from app.services.reconciliation.persistence import (
+    persist_reconciliation_results,
+)
 from app.services.reconciliation.run_manager import (
     get_reconciliation_run_details,
     list_reconciliation_runs,
@@ -25,6 +32,71 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# =========================================================
+# RUN RECONCILIATION
+# =========================================================
+
+@router.post("")
+def run_reconciliation(
+    db: Session = Depends(get_db),
+):
+    """
+    Execute payment-settlement reconciliation.
+
+    The reconciliation engine compares all payments
+    against their settlements and persists:
+
+    - Reconciliation results
+    - Exceptions
+    - Evidence
+    - Audit logs
+    - Reconciliation run metadata
+    """
+
+    try:
+        # Run reconciliation engine
+        results = run_payment_settlement_reconciliation(
+            db=db,
+        )
+
+        # Persist complete reconciliation run
+        run = persist_reconciliation_results(
+            db=db,
+            results=results,
+        )
+
+        return {
+            "message": "Reconciliation completed successfully.",
+            "run": {
+                "run_id": run.run_id,
+                "status": run.status,
+                "total_records": run.total_records,
+                "matched_records": run.matched_records,
+                "exception_count": run.exception_count,
+                "started_at": run.started_at,
+                "completed_at": run.completed_at,
+            },
+        }
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "RECONCILIATION_VALIDATION_ERROR",
+                "message": str(exc),
+            },
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "RECONCILIATION_FAILED",
+                "message": str(exc),
+            },
+        )
 
 
 # =========================================================

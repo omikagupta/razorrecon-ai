@@ -1,9 +1,15 @@
+
 import { useEffect, useState } from "react";
-import { getDashboardAnalytics } from "../services/api.js";
+import {
+  getDashboardAnalytics,
+  runReconciliation,
+} from "../services/api.js";
 
 function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [error, setError] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [runMessage, setRunMessage] = useState(null);
 
   useEffect(() => {
     async function loadDashboard() {
@@ -18,7 +24,31 @@ function Dashboard() {
     loadDashboard();
   }, []);
 
-  if (error) {
+  async function handleRunReconciliation() {
+    try {
+      setRunning(true);
+      setError(null);
+      setRunMessage(null);
+
+      const result = await runReconciliation();
+
+      setRunMessage(
+        `Reconciliation completed: ${result.run.run_id}`
+      );
+
+      // Refresh dashboard analytics
+      const updatedAnalytics =
+        await getDashboardAnalytics();
+
+      setAnalytics(updatedAnalytics);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  if (error && !analytics) {
     return (
       <div className="placeholder-card">
         <h2>Unable to load dashboard</h2>
@@ -46,10 +76,29 @@ function Dashboard() {
           </p>
         </div>
 
-        <button className="primary-button">
-          Run Reconciliation
+        <button
+          className="primary-button"
+          onClick={handleRunReconciliation}
+          disabled={running}
+        >
+          {running
+            ? "Running Reconciliation..."
+            : "Run Reconciliation"}
         </button>
       </div>
+
+      {runMessage && (
+        <div className="placeholder-card">
+          <strong>{runMessage}</strong>
+        </div>
+      )}
+
+      {error && (
+        <div className="placeholder-card">
+          <strong>Reconciliation failed</strong>
+          <p>{error}</p>
+        </div>
+      )}
 
       <div className="stats-grid">
         <div className="stat-card">
@@ -71,7 +120,9 @@ function Dashboard() {
 
         <div className="stat-card">
           <span>Financial Exposure</span>
-          <h2>₹ {analytics.financial_exposure}</h2>
+          <h2>
+            â‚¹ {analytics.financial_exposure}
+          </h2>
         </div>
       </div>
 
@@ -82,7 +133,10 @@ function Dashboard() {
           {Object.entries(
             analytics.severity_distribution
           ).map(([severity, count]) => (
-            <div className="severity-item" key={severity}>
+            <div
+              className="severity-item"
+              key={severity}
+            >
               <span>{severity}</span>
               <strong>{count}</strong>
             </div>

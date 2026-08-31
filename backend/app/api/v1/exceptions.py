@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -642,14 +642,14 @@ def review_exception(
         exception.status = new_state
 
         if new_state == "RESOLVED":
-            exception.resolved_at = datetime.utcnow()
+            exception.resolved_at = datetime.now(UTC)
 
         human_review = HumanReview(
             exception_id=exception.exception_id,
             reviewer=review.reviewer,
             action=review.action,
             reason=review.reason,
-            created_at=datetime.utcnow(),
+           created_at=datetime.now(UTC),
         )
 
         db.add(human_review)
@@ -662,7 +662,7 @@ def review_exception(
             new_state=new_state,
             reason=review.reason,
             confidence=exception.confidence,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
 
         db.add(audit_log)
