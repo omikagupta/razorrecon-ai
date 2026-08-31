@@ -1,6 +1,5 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-
 from uuid import uuid4
 from sqlalchemy.orm import Session
 
@@ -17,6 +16,7 @@ from app.services.reconciliation.run_manager import (
     fail_reconciliation_run,
     mark_run_running,
 )
+
 
 def persist_reconciliation_results(
     db: Session,
@@ -78,7 +78,6 @@ def persist_reconciliation_results(
     )
 
     try:
-
         # -----------------------------------------------------
         # 3. Mark run as RUNNING
         # -----------------------------------------------------
@@ -96,7 +95,6 @@ def persist_reconciliation_results(
         # -----------------------------------------------------
 
         for result in results:
-
             result_status = result["status"]
             transaction_id = result["payment_id"]
 
@@ -131,7 +129,7 @@ def persist_reconciliation_results(
                 difference=difference,
                 match_method=match_method,
                 match_confidence=confidence,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(UTC),
             )
 
             db.add(reconciliation_result)
@@ -141,7 +139,6 @@ def persist_reconciliation_results(
             # -------------------------------------------------
 
             if result_status == "MATCHED":
-
                 matched_count += 1
 
                 db.add(
@@ -156,7 +153,7 @@ def persist_reconciliation_results(
                             "settlement amount."
                         ),
                         confidence=confidence,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(UTC),
                     )
                 )
 
@@ -165,10 +162,7 @@ def persist_reconciliation_results(
             # -------------------------------------------------
 
             elif result_status == "AMOUNT_MISMATCH":
-
                 exception_count += 1
-
-                from uuid import uuid4
 
                 exception = ExceptionRecord(
                     exception_id=(
@@ -184,7 +178,7 @@ def persist_reconciliation_results(
                         f"match settlement amount {actual_amount}. "
                         f"Difference: {difference}."
                     ),
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(UTC),
                 )
 
                 db.add(exception)
@@ -207,7 +201,7 @@ def persist_reconciliation_results(
                             "payment amount."
                         ),
                         confidence=confidence,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(UTC),
                     )
                 )
 
@@ -216,10 +210,7 @@ def persist_reconciliation_results(
             # -------------------------------------------------
 
             elif result_status == "MISSING_SETTLEMENT":
-
                 exception_count += 1
-
-                from uuid import uuid4
 
                 exception = ExceptionRecord(
                     exception_id=(
@@ -234,7 +225,7 @@ def persist_reconciliation_results(
                         f"No settlement found for payment "
                         f"{transaction_id}."
                     ),
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(UTC),
                 )
 
                 db.add(exception)
@@ -257,12 +248,12 @@ def persist_reconciliation_results(
                             "settlement."
                         ),
                         confidence=confidence,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(UTC),
                     )
                 )
 
             # -------------------------------------------------
-            # Unknown status
+            # UNKNOWN STATUS
             # -------------------------------------------------
 
             else:
@@ -272,13 +263,7 @@ def persist_reconciliation_results(
                 )
 
         # -----------------------------------------------------
-        # 5. Commit persisted results
-        # -----------------------------------------------------
-
-        db.commit()
-
-        # -----------------------------------------------------
-        # 6. Complete reconciliation run
+        # 5. Complete reconciliation run
         # -----------------------------------------------------
 
         run = complete_reconciliation_run(
@@ -292,11 +277,16 @@ def persist_reconciliation_results(
         return run
 
     except Exception:
+        # -----------------------------------------------------
+        # 6. Roll back failed reconciliation changes
+        # -----------------------------------------------------
 
-        # Roll back failed reconciliation changes.
         db.rollback()
 
-        # Mark the run as FAILED.
+        # -----------------------------------------------------
+        # 7. Mark reconciliation run as FAILED
+        # -----------------------------------------------------
+
         try:
             fail_reconciliation_run(
                 db=db,

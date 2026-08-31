@@ -1,5 +1,4 @@
-from datetime import datetime
-from decimal import Decimal
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -17,7 +16,8 @@ def create_reconciliation_run(
     """
     Create a new reconciliation run.
 
-    A newly created run begins in CREATED state.
+    The caller owns the database transaction.
+    No commit is performed here.
     """
 
     run = ReconciliationRun(
@@ -26,13 +26,12 @@ def create_reconciliation_run(
         total_records=total_records,
         matched_records=0,
         exception_count=0,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
         completed_at=None,
     )
 
     db.add(run)
-    db.commit()
-    db.refresh(run)
+    db.flush()
 
     return run
 
@@ -43,13 +42,14 @@ def mark_run_running(
 ) -> ReconciliationRun:
     """
     Mark a reconciliation run as actively processing.
+
+    The caller owns the database transaction.
     """
 
     run.status = "RUNNING"
-    run.started_at = datetime.utcnow()
+    run.started_at = datetime.now(UTC)
 
-    db.commit()
-    db.refresh(run)
+    db.flush()
 
     return run
 
@@ -62,18 +62,18 @@ def complete_reconciliation_run(
     exception_count: int,
 ) -> ReconciliationRun:
     """
-    Mark a reconciliation run as successfully completed
-    and persist final statistics.
+    Mark a reconciliation run as successfully completed.
+
+    The caller owns the database transaction.
     """
 
     run.status = "COMPLETED"
     run.total_records = total_records
     run.matched_records = matched_records
     run.exception_count = exception_count
-    run.completed_at = datetime.utcnow()
+    run.completed_at = datetime.now(UTC)
 
-    db.commit()
-    db.refresh(run)
+    db.flush()
 
     return run
 
@@ -84,13 +84,14 @@ def fail_reconciliation_run(
 ) -> ReconciliationRun:
     """
     Mark a reconciliation run as failed.
+
+    The caller owns the database transaction.
     """
 
     run.status = "FAILED"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = datetime.now(UTC)
 
-    db.commit()
-    db.refresh(run)
+    db.flush()
 
     return run
 
@@ -163,12 +164,13 @@ def get_reconciliation_run_details(
         "MISSING_SETTLEMENT": 0,
     }
 
+    from decimal import Decimal
+
     total_financial_difference = Decimal("0.00")
 
     serialized_results = []
 
     for result in results:
-
         status = result.status
 
         if status not in status_distribution:
