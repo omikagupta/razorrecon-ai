@@ -1,12 +1,6 @@
-from decimal import Decimal
-
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.reconciliation import (
-    ReconciliationResult,
-    ReconciliationRun,
-)
 
 
 client = TestClient(app)
@@ -29,6 +23,10 @@ class FakeRun:
         self.started_at = None
         self.completed_at = None
 
+
+# =========================================================
+# TEST 1 — LIST RECONCILIATION RUNS
+# =========================================================
 
 def test_list_reconciliation_runs(monkeypatch):
 
@@ -58,6 +56,10 @@ def test_list_reconciliation_runs(monkeypatch):
     assert len(data["runs"]) == 2
     assert data["runs"][0]["run_id"] == "RUN_TEST_001"
 
+
+# =========================================================
+# TEST 2 — GET RUN DETAILS
+# =========================================================
 
 def test_get_reconciliation_run_details(monkeypatch):
 
@@ -102,11 +104,16 @@ def test_get_reconciliation_run_details(monkeypatch):
     assert data["run"]["run_id"] == "RUN_TEST_001"
     assert data["summary"]["total_results"] == 3
     assert data["summary"]["matched"] == 1
+
     assert (
         data["summary"]["amount_mismatch"]
         == 1
     )
 
+
+# =========================================================
+# TEST 3 — RUN NOT FOUND
+# =========================================================
 
 def test_reconciliation_run_not_found(monkeypatch):
 
@@ -124,12 +131,16 @@ def test_reconciliation_run_not_found(monkeypatch):
     data = response.json()
 
     assert (
-        data["detail"]["error"]
+        data["error"]
         == "RECONCILIATION_RUN_NOT_FOUND"
     )
 
-    assert data["detail"]["run_id"] == "RUN_UNKNOWN"
+    assert data["run_id"] == "RUN_UNKNOWN"
 
+
+# =========================================================
+# TEST 4 — RESPONSE STRUCTURE
+# =========================================================
 
 def test_reconciliation_run_response_structure(monkeypatch):
 

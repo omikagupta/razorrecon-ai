@@ -273,3 +273,40 @@ def test_unsupported_status_rejected(db):
             db=db,
             results=results,
         )
+def test_persist_unsupported_status_rolls_back_run(db):
+    results = [
+        {
+            "payment_id": "pay_001",
+            "order_id": "order_001",
+            "merchant_id": "merchant_001",
+            "payment_amount": Decimal("100.00"),
+            "settlement_amount": Decimal("100.00"),
+            "status": "UNKNOWN_STATUS",
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported reconciliation status",
+    ):
+        persist_reconciliation_results(
+            db=db,
+            results=results,
+        )
+
+    # The failed transaction must not leave behind
+    # partially persisted reconciliation data.
+    assert (
+        db.query(ReconciliationResult).count()
+        == 0
+    )
+
+    assert (
+        db.query(ExceptionRecord).count()
+        == 0
+    )
+
+    assert (
+        db.query(AuditLog).count()
+        == 0
+    )

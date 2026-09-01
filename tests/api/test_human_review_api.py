@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock, patch
-
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -33,11 +31,8 @@ def test_review_exception_not_found():
 
     data = response.json()
 
-    assert data["detail"]["error"] == "EXCEPTION_NOT_FOUND"
-    assert (
-        data["detail"]["exception_id"]
-        == "EXC_DOES_NOT_EXIST"
-    )
+    assert data["error"] == "EXCEPTION_NOT_FOUND"
+    assert data["exception_id"] == "EXC_DOES_NOT_EXIST"
 
 
 # =========================================================
@@ -180,15 +175,8 @@ def test_review_already_reviewed_exception():
 
     data = response.json()
 
-    assert (
-        data["detail"]["error"]
-        == "INVALID_EXCEPTION_STATE"
-    )
-
-    assert (
-        data["detail"]["exception_id"]
-        == exception_id
-    )
+    assert data["error"] == "INVALID_EXCEPTION_STATE"
+    assert data["exception_id"] == exception_id
 
 
 # =========================================================

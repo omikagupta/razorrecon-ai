@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.ai.investigation.exception_analyzer import (
+    collect_evidence,
+    investigate_all_open_exceptions,
     investigate_exception,
 )
 
@@ -503,4 +505,128 @@ def test_deterministic_fallback_when_ai_response_fails_validation(
     mock_provider.generate.assert_called_once_with(
         "test investigation prompt"
     )
+# =========================================================
+# TEST 5 — COLLECT STRUCTURED EVIDENCE
+# =========================================================
 
+
+def test_collect_evidence_returns_structured_records():
+    db = MagicMock()
+
+    evidence_1 = SimpleNamespace(
+        evidence_type="PAYMENT",
+        source_table="payments",
+        source_record_id="pay_001",
+        description="Payment amount was 100.00 INR.",
+        id=1,
+    )
+
+    evidence_2 = SimpleNamespace(
+        evidence_type="SETTLEMENT",
+        source_table="settlements",
+        source_record_id="set_001",
+        description="Settlement amount was 95.00 INR.",
+        id=2,
+    )
+
+    query = db.query.return_value
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.all.return_value = [
+        evidence_1,
+        evidence_2,
+    ]
+
+    result = collect_evidence(
+        db=db,
+        exception_id="EXC_TEST_001",
+    )
+
+    assert result == [
+        {
+            "evidence_type": "PAYMENT",
+            "source_table": "payments",
+            "source_record_id": "pay_001",
+            "description": "Payment amount was 100.00 INR.",
+        },
+        {
+            "evidence_type": "SETTLEMENT",
+            "source_table": "settlements",
+            "source_record_id": "set_001",
+            "description": "Settlement amount was 95.00 INR.",
+        },
+    ]
+
+    query.order_by.assert_called_once()
+
+
+# =========================================================
+# TEST 6 — INVESTIGATE ALL OPEN EXCEPTIONS
+# =========================================================
+
+
+@patch(
+    "app.ai.investigation.exception_analyzer.investigate_exception"
+)
+def test_investigate_all_open_exceptions(
+    mock_investigate_exception,
+):
+    db = MagicMock()
+
+    exception_1 = SimpleNamespace(
+        exception_id="EXC_TEST_001",
+        status="OPEN",
+        id=1,
+    )
+
+    exception_2 = SimpleNamespace(
+        exception_id="EXC_TEST_002",
+        status="OPEN",
+        id=2,
+    )
+
+    query = db.query.return_value
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.all.return_value = [
+        exception_1,
+        exception_2,
+    ]
+
+    mock_investigate_exception.side_effect = [
+        {
+            "exception_id": "EXC_TEST_001",
+            "investigation_mode": "AI_ASSISTED",
+        },
+        {
+            "exception_id": "EXC_TEST_002",
+            "investigation_mode": "DETERMINISTIC_FALLBACK",
+        },
+    ]
+
+    result = investigate_all_open_exceptions(
+        db=db,
+    )
+
+    assert result == [
+        {
+            "exception_id": "EXC_TEST_001",
+            "investigation_mode": "AI_ASSISTED",
+        },
+        {
+            "exception_id": "EXC_TEST_002",
+            "investigation_mode": "DETERMINISTIC_FALLBACK",
+        },
+    ]
+
+    assert mock_investigate_exception.call_count == 2
+
+    mock_investigate_exception.assert_any_call(
+        db=db,
+        exception=exception_1,
+    )
+
+    mock_investigate_exception.assert_any_call(
+        db=db,
+        exception=exception_2,
+    )

@@ -1,4 +1,3 @@
-
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -12,7 +11,6 @@ client = TestClient(app)
 # =========================================================
 # TEST DATA
 # =========================================================
-
 
 VALID_AI_ANALYSIS = {
     "summary": (
@@ -70,7 +68,6 @@ FALLBACK_INVESTIGATION_RESULT = {
 # TEST 1 — NOT FOUND
 # =========================================================
 
-
 def test_investigation_exception_not_found():
     response = client.post(
         "/api/v1/exceptions/EXC_DOES_NOT_EXIST/investigate"
@@ -80,15 +77,10 @@ def test_investigation_exception_not_found():
 
     data = response.json()
 
-    assert "detail" in data
+    assert data["error"] == "EXCEPTION_NOT_FOUND"
 
     assert (
-        data["detail"]["error"]
-        == "EXCEPTION_NOT_FOUND"
-    )
-
-    assert (
-        data["detail"]["exception_id"]
+        data["exception_id"]
         == "EXC_DOES_NOT_EXIST"
     )
 
@@ -96,7 +88,6 @@ def test_investigation_exception_not_found():
 # =========================================================
 # TEST 2 — AI ASSISTED RESPONSE
 # =========================================================
-
 
 @patch(
     "app.api.v1.exceptions.investigate_exception"
@@ -108,10 +99,6 @@ def test_investigation_ai_assisted(
     Verify that the endpoint exposes a clean structured
     AI-assisted response.
     """
-
-    # -----------------------------------------------------
-    # Find an existing exception from the real test database
-    # -----------------------------------------------------
 
     list_response = client.get(
         "/api/v1/exceptions?status=OPEN"
@@ -142,10 +129,6 @@ def test_investigation_ai_assisted(
 
     data = response.json()
 
-    # -----------------------------------------------------
-    # Top-level response
-    # -----------------------------------------------------
-
     assert data["exception_id"] == exception_id
 
     assert (
@@ -160,19 +143,11 @@ def test_investigation_ai_assisted(
 
     assert data["evidence_count"] == 15
 
-    # -----------------------------------------------------
-    # AI response
-    # -----------------------------------------------------
-
     assert data["ai_analysis"] is not None
 
-    assert (
-        data["ai_analysis"]["summary"]
-    )
+    assert data["ai_analysis"]["summary"]
 
-    assert (
-        data["ai_analysis"]["root_cause"]
-    )
+    assert data["ai_analysis"]["root_cause"]
 
     assert (
         data["ai_analysis"]["risk_level"]
@@ -189,17 +164,12 @@ def test_investigation_ai_assisted(
         == 0.95
     )
 
-    # -----------------------------------------------------
-    # Verify service call
-    # -----------------------------------------------------
-
     mock_investigate.assert_called_once()
 
 
 # =========================================================
 # TEST 3 — DETERMINISTIC FALLBACK
 # =========================================================
-
 
 @patch(
     "app.api.v1.exceptions.investigate_exception"
@@ -260,7 +230,6 @@ def test_investigation_deterministic_fallback(
 # TEST 4 — API RESPONSE STRUCTURE
 # =========================================================
 
-
 @patch(
     "app.api.v1.exceptions.investigate_exception"
 )
@@ -299,7 +268,6 @@ def test_investigation_response_has_production_structure(
 
     data = response.json()
 
-    # Required top-level fields
     required_fields = {
         "exception_id",
         "investigation_mode",
@@ -313,7 +281,6 @@ def test_investigation_response_has_production_structure(
         data.keys()
     )
 
-    # Correct types
     assert isinstance(
         data["exception_id"],
         str,
@@ -338,4 +305,3 @@ def test_investigation_response_has_production_structure(
         data["deterministic_analysis"],
         dict,
     )
-
