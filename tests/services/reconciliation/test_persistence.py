@@ -1,3 +1,4 @@
+
 from decimal import Decimal
 
 import pytest
@@ -195,6 +196,21 @@ def test_persist_missing_settlement_creates_exception(db):
     assert exception.severity == "CRITICAL"
     assert exception.status == "OPEN"
 
+    reconciliation = (
+        db.query(ReconciliationResult)
+        .filter(
+            ReconciliationResult.transaction_id == "pay_001"
+        )
+        .one()
+    )
+
+    assert reconciliation.expected_amount == Decimal("100.00")
+    assert reconciliation.actual_amount is None
+
+    # A missing settlement represents zero actual settlement,
+    # so the complete expected amount is financial exposure.
+    assert reconciliation.difference == Decimal("100.00")
+
 
 def test_empty_results_rejected(db):
     with pytest.raises(
@@ -273,6 +289,8 @@ def test_unsupported_status_rejected(db):
             db=db,
             results=results,
         )
+
+
 def test_persist_unsupported_status_rolls_back_run(db):
     results = [
         {
@@ -294,8 +312,7 @@ def test_persist_unsupported_status_rolls_back_run(db):
             results=results,
         )
 
-    # The failed transaction must not leave behind
-    # partially persisted reconciliation data.
+    # Financial processing must be rolled back.
     assert (
         db.query(ReconciliationResult).count()
         == 0
@@ -310,3 +327,58 @@ def test_persist_unsupported_status_rolls_back_run(db):
         db.query(AuditLog).count()
         == 0
     )
+
+    # The reconciliation run itself must survive
+    # as a FAILED audit record.
+    from app.models.reconciliation import ReconciliationRun
+
+    runs = (
+        db.query(ReconciliationRun)
+        .all()
+    )
+
+    assert len(runs) == 1
+
+    assert runs[0].status == "FAILED"
+    assert runs[0].total_records == 1
+    assert runs[0].completed_at is not None
+
+
+def test_persist_currency_mismatch_creates_exception(db):
+    create_payment(db)
+
+    results = [
+        {
+            "payment_id": "pay_001",
+            "order_id": "order_001",
+            "merchant_id": "merchant_001",
+            "payment_amount": Decimal("100.00"),
+            "settlement_amount": Decimal("100.00"),
+            "payment_currency": "INR",
+            "settlement_currency": "USD",
+            "status": "CURRENCY_MISMATCH",
+            "settlement_id": "set_001",
+        }
+    ]
+
+    run = persist_reconciliation_results(
+        db=db,
+        results=results,
+    )
+
+    assert run.status == "COMPLETED"
+    assert run.total_records == 1
+    assert run.matched_records == 0
+    assert run.exception_count == 1
+
+    exception = (
+        db.query(ExceptionRecord)
+        .filter(
+            ExceptionRecord.transaction_id == "pay_001"
+        )
+        .one()
+    )
+
+    assert exception.exception_type == "CURRENCY_MISMATCH"
+    assert exception.severity == "HIGH"
+    assert exception.status == "OPEN"

@@ -1,3 +1,4 @@
+
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -74,8 +75,9 @@ def test_list_returns_exceptions_newest_first(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list()
+    results, total = repository.list()
 
+    assert total == 2
     assert len(results) == 2
     assert results[0].exception_id == "EXC_002"
     assert results[1].exception_id == "EXC_001"
@@ -96,10 +98,11 @@ def test_list_filters_by_status(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list(
+    results, total = repository.list(
         status="OPEN",
     )
 
+    assert total == 1
     assert len(results) == 1
     assert results[0].exception_id == "EXC_OPEN"
 
@@ -119,10 +122,11 @@ def test_list_filters_by_severity(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list(
+    results, total = repository.list(
         severity="CRITICAL",
     )
 
+    assert total == 1
     assert len(results) == 1
     assert results[0].exception_id == "EXC_CRITICAL"
 
@@ -142,10 +146,11 @@ def test_list_filters_by_exception_type(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list(
+    results, total = repository.list(
         exception_type="MISSING_SETTLEMENT",
     )
 
+    assert total == 1
     assert len(results) == 1
     assert results[0].exception_id == "EXC_MISSING"
 
@@ -177,12 +182,13 @@ def test_list_supports_combined_filters(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list(
+    results, total = repository.list(
         status="OPEN",
         severity="HIGH",
         exception_type="AMOUNT_MISMATCH",
     )
 
+    assert total == 1
     assert len(results) == 1
     assert results[0].exception_id == "EXC_MATCH"
 
@@ -199,12 +205,21 @@ def test_list_supports_limit_and_offset(db):
 
     repository = ExceptionRepository(db)
 
-    results = repository.list(
+    results, total = repository.list(
         limit=1,
         offset=1,
     )
 
+    assert total == 3
     assert len(results) == 1
+
+    # Newest-first ordering:
+    #
+    # EXC_2
+    # EXC_1
+    # EXC_0
+    #
+    # offset=1 therefore returns EXC_1.
     assert results[0].exception_id == "EXC_1"
 
 

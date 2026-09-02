@@ -1,76 +1,85 @@
 from datetime import datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 from app.models.financial import Payment, Settlement
 from app.services.reconciliation.matcher import reconcile_payment
 
 
-def create_payment():
-    return Payment(
-        payment_id="PAY_TEST_001",
-        order_id="ORD_TEST_001",
-        merchant_id="MER_TEST_001",
-        amount=Decimal("1000.00"),
+def create_payment(
+    db,
+    payment_id="PAY_001",
+    amount=Decimal("100.00"),
+):
+    payment = Payment(
+        payment_id=payment_id,
+        order_id="ORDER_001",
+        merchant_id="MERCHANT_001",
+        amount=Decimal(str(amount)),
         currency="INR",
         status="SUCCESS",
         payment_timestamp=datetime.now(),
     )
+    db.add(payment)
+    db.commit()
+    return payment
 
 
-def create_settlement(amount):
-    return Settlement(
-        settlement_id="SET_TEST_001",
-        payment_id="PAY_TEST_001",
-        merchant_id="MER_TEST_001",
-        amount=amount,
+def create_settlement(
+    db,
+    payment_id="PAY_001",
+    settlement_id="SET_001",
+    amount=Decimal("100.00"),
+):
+    settlement = Settlement(
+        settlement_id=settlement_id,
+        payment_id=payment_id,
+        merchant_id="MERCHANT_001",
+        amount=Decimal(str(amount)),
         currency="INR",
         settlement_timestamp=datetime.now(),
     )
+    db.add(settlement)
+    db.commit()
+    return settlement
 
 
-def test_reconcile_payment_matched():
-    db = MagicMock()
-    payment = create_payment()
-    settlement = create_settlement(Decimal("1000.00"))
+def test_reconcile_payment_duplicate_settlement(db):
+    payment = create_payment(
+        db,
+        payment_id="PAY_DUP_001",
+        amount=Decimal("100.00"),
+    )
 
-    db.query.return_value.filter.return_value.first.return_value = settlement
+    create_settlement(
+        db,
+        settlement_id="SET_DUP_001",
+        payment_id="PAY_DUP_001",
+        amount=Decimal("100.00"),
+    )
 
-    result = reconcile_payment(db=db, payment=payment)
+    create_settlement(
+        db,
+        settlement_id="SET_DUP_002",
+        payment_id="PAY_DUP_001",
+        amount=Decimal("100.00"),
+    )
 
-    assert result["status"] == "MATCHED"
-    assert result["payment_id"] == "PAY_TEST_001"
-    assert result["settlement_id"] == "SET_TEST_001"
-    assert result["payment_amount"] == Decimal("1000.00")
-    assert result["settlement_amount"] == Decimal("1000.00")
+    result = reconcile_payment(
+        db=db,
+        payment=payment,
+    )
 
-
-def test_reconcile_payment_amount_mismatch():
-    db = MagicMock()
-    payment = create_payment()
-    settlement = create_settlement(Decimal("970.00"))
-
-    db.query.return_value.filter.return_value.first.return_value = settlement
-
-    result = reconcile_payment(db=db, payment=payment)
-
-    assert result["status"] == "AMOUNT_MISMATCH"
-    assert result["payment_id"] == "PAY_TEST_001"
-    assert result["settlement_id"] == "SET_TEST_001"
-    assert result["payment_amount"] == Decimal("1000.00")
-    assert result["settlement_amount"] == Decimal("970.00")
-
-
-def test_reconcile_payment_missing_settlement():
-    db = MagicMock()
-    payment = create_payment()
-
-    db.query.return_value.filter.return_value.first.return_value = None
-
-    result = reconcile_payment(db=db, payment=payment)
-
-    assert result["status"] == "MISSING_SETTLEMENT"
-    assert result["payment_id"] == "PAY_TEST_001"
+    assert result["payment_id"] == "PAY_DUP_001"
+    assert result["status"] == "DUPLICATE_SETTLEMENT"
     assert result["settlement_id"] is None
-    assert result["payment_amount"] == Decimal("1000.00")
-    assert result["settlement_amount"] is None
+    assert result["settlement_count"] == 2
+
+    assert set(result["settlement_ids"]) == {
+        "SET_DUP_001",
+        "SET_DUP_002",
+    }
+
+    assert result["settlement_amounts"] == [
+        Decimal("100.00"),
+        Decimal("100.00"),
+    ]

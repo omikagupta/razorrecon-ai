@@ -28,7 +28,10 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <ShieldCheck size={30} />
+        <div className="brand-icon">
+          <ShieldCheck size={21} strokeWidth={2.2} />
+        </div>
+
         <div>
           <h2>RazorRecon</h2>
           <span>AI Intelligence</span>
@@ -45,11 +48,12 @@ function Sidebar() {
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.path === "/"}
               className={({ isActive }) =>
                 `nav-item ${isActive ? "active" : ""}`
               }
             >
-              <Icon size={20} />
+              <Icon size={18} strokeWidth={2} />
               <span>{item.name}</span>
             </NavLink>
           );
@@ -59,7 +63,7 @@ function Sidebar() {
       <div className="sidebar-footer">
         <div className="system-status">
           <span className="status-dot" />
-          System Operational
+          <span>System Operational</span>
         </div>
       </div>
     </aside>

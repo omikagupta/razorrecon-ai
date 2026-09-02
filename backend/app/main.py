@@ -1,12 +1,8 @@
 
-import logging
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.exceptions import router as exceptions_router
@@ -19,82 +15,49 @@ from app.core.error_handlers import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.core.logging import configure_logging
 from app.core.request_logging import RequestLoggingMiddleware
 from app.db.session import engine
 
 
-# ------------------------------------------------------------------
-# Logging
-# ------------------------------------------------------------------
-
-configure_logging()
-
-logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Manage application startup and shutdown lifecycle events.
-    """
-    logger.info(
-        "application_started app=%s environment=%s",
-        settings.app_name,
-        settings.app_env,
-    )
-
-    yield
-
-    logger.info(
-        "application_stopped app=%s",
-        settings.app_name,
-    )
-
-
-# ------------------------------------------------------------------
-# Application
-# ------------------------------------------------------------------
+# =========================================================
+# FASTAPI APPLICATION
+# =========================================================
 
 app = FastAPI(
-    lifespan=lifespan,
-    title=settings.app_name,
-    version="0.2.0",
-    contact={"name": "RazorRecon AI"},
-    license_info={"name": "Proprietary"},
-    openapi_tags=[
-        {
-            "name": "System",
-            "description": "Service metadata and API information.",
-        },
-        {
-            "name": "Health",
-            "description": (
-                "Liveness and readiness checks for service monitoring."
-            ),
-        },
-        {
-            "name": "Exceptions",
-            "description": (
-                "Reconciliation exception lookup, analytics, "
-                "investigation, and human-review workflows."
-            ),
-        },
-        {
-            "name": "Dashboard",
-            "description": (
-                "Aggregate reconciliation and exception metrics."
-            ),
-        },
-    ],
+    title="RazorRecon AI",
     description=(
-        "RazorRecon AI — Intelligent financial reconciliation "
-        "and exception management platform."
+        "AI-powered financial reconciliation and "
+        "exception investigation platform."
     ),
+    version="0.2.0",
 )
 
+
+# =========================================================
+# MIDDLEWARE
+# =========================================================
+
+# Allow the configured frontend origins to communicate
+# with the FastAPI backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(
+    RequestLoggingMiddleware,
+)
+
+
+# =========================================================
+# ERROR HANDLERS
+# =========================================================
+
 app.add_exception_handler(
-    StarletteHTTPException,
+    HTTPException,
     http_exception_handler,
 )
 
@@ -109,98 +72,99 @@ app.add_exception_handler(
 )
 
 
-# ------------------------------------------------------------------
-# Request Logging
-# ------------------------------------------------------------------
+# =========================================================
+# SYSTEM ROUTES
+# =========================================================
 
-app.add_middleware(RequestLoggingMiddleware)
-
-
-# ------------------------------------------------------------------
-# CORS
-# ------------------------------------------------------------------
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=[
-        "GET",
-        "POST",
-        "PUT",
-        "PATCH",
-        "DELETE",
-        "OPTIONS",
-    ],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-    ],
+@app.get(
+    "/api/v1",
+    tags=["System"],
 )
+def api_root():
+    return {
+        "service": "RazorRecon AI",
+        "status": "running",
+        "version": "0.2.0",
+    }
 
 
-# ------------------------------------------------------------------
-# API Routers
-# ------------------------------------------------------------------
+# =========================================================
+# API ROUTERS
+#
+# Prefixes are already defined inside each router file.
+# Do NOT add prefix= here.
+# =========================================================
+
+app.include_router(dashboard_router)
 
 app.include_router(exceptions_router)
-app.include_router(dashboard_router)
+
 app.include_router(reconciliation_runs_router)
 
 
-# ------------------------------------------------------------------
-# Health Endpoints
-# ------------------------------------------------------------------
+# =========================================================
+# HEALTH CHECKS
+# =========================================================
 
-
-@app.get("/api/v1/health", tags=["Health"])
+@app.get(
+    "/api/v1/health",
+    tags=["Health"],
+)
 def health_check():
     """
-    Returns the overall application health status.
+    Liveness + database health check.
 
-    Verifies database connectivity and reports whether the
-    service is healthy or degraded.
+    Returns:
+        healthy  -> database connection succeeds
+        degraded -> database connection fails
+
+    HTTP status remains 200 because this endpoint reports
+    service health rather than rejecting the request.
     """
-    database_status = "healthy"
-
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+
+        return {
+            "status": "healthy",
+            "service": "RazorRecon AI",
+            "database": "healthy",
+        }
+
     except Exception:
-        logger.exception("database_health_check_failed")
-        database_status = "unhealthy"
-
-    return {
-        "status": (
-            "healthy"
-            if database_status == "healthy"
-            else "degraded"
-        ),
-        "service": settings.app_name,
-        "database": database_status,
-    }
+        return {
+            "status": "degraded",
+            "service": "RazorRecon AI",
+            "database": "unhealthy",
+        }
 
 
-@app.get("/api/v1/health/live", tags=["Health"])
+@app.get(
+    "/api/v1/health/live",
+    tags=["Health"],
+)
 def liveness_check():
     """
-    Confirms that the application process is alive.
+    Kubernetes-style liveness check.
 
-    This endpoint intentionally does not check external
-    dependencies such as the database.
+    This endpoint does not depend on the database.
     """
     return {
         "status": "alive",
-        "service": settings.app_name,
+        "service": "RazorRecon AI",
     }
 
 
-@app.get("/api/v1/health/ready", tags=["Health"])
+@app.get(
+    "/api/v1/health/ready",
+    tags=["Health"],
+)
 def readiness_check():
     """
-    Confirms that the application is ready to serve traffic.
+    Readiness check.
 
-    Readiness requires successful database connectivity.
+    The application is ready only when the database
+    connection is available.
     """
     try:
         with engine.connect() as connection:
@@ -208,32 +172,14 @@ def readiness_check():
 
         return {
             "status": "ready",
+            "service": "RazorRecon AI",
             "database": "healthy",
         }
 
     except Exception:
-        logger.exception("database_readiness_check_failed")
-
         return {
             "status": "not_ready",
+            "service": "RazorRecon AI",
             "database": "unhealthy",
         }
-
-
-# ------------------------------------------------------------------
-# System Endpoints
-# ------------------------------------------------------------------
-
-
-@app.get("/api/v1", tags=["System"])
-def api_root():
-    """
-    Basic API information endpoint.
-    """
-    return {
-        "service": settings.app_name,
-        "version": "0.2.0",
-        "status": "running",
-        "message": "RazorRecon AI API is operational.",
-    }
 

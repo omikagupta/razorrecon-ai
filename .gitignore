@@ -7,9 +7,10 @@ __pycache__/
 venv/
 env/
 
-# Environment
+# Environment / secrets
 .env
 .env.*
+!.env.example
 
 # Local databases
 *.db
@@ -31,9 +32,8 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
 
 # Node / Frontend
 node_modules/
 dist/
-.npm/
-.coverage

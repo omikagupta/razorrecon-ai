@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -135,6 +136,7 @@ def get_reconciliation_run_details(
     Return detailed information for a reconciliation run.
 
     Includes:
+
     - Run metadata
     - All reconciliation results
     - Status distribution
@@ -158,17 +160,24 @@ def get_reconciliation_run_details(
         .all()
     )
 
+    # ---------------------------------------------------------
+    # Status distribution
+    # ---------------------------------------------------------
+
     status_distribution = {
         "MATCHED": 0,
         "AMOUNT_MISMATCH": 0,
         "MISSING_SETTLEMENT": 0,
+        "CURRENCY_MISMATCH": 0,
     }
-
-    from decimal import Decimal
 
     total_financial_difference = Decimal("0.00")
 
     serialized_results = []
+
+    # ---------------------------------------------------------
+    # Serialize results
+    # ---------------------------------------------------------
 
     for result in results:
         status = result.status
@@ -212,6 +221,10 @@ def get_reconciliation_run_details(
             }
         )
 
+    # ---------------------------------------------------------
+    # Return structured run details
+    # ---------------------------------------------------------
+
     return {
         "run": {
             "run_id": run.run_id,
@@ -234,6 +247,10 @@ def get_reconciliation_run_details(
             ),
             "missing_settlement": status_distribution.get(
                 "MISSING_SETTLEMENT",
+                0,
+            ),
+            "currency_mismatch": status_distribution.get(
+                "CURRENCY_MISMATCH",
                 0,
             ),
             "total_financial_difference": (

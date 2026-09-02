@@ -1,6 +1,8 @@
-import json
-
 from sqlalchemy.orm import Session
+
+from app.ai.parsers.response_parser import (
+    parse_ai_json_response,
+)
 from app.services.investigation.persistence import (
     persist_investigation,
 )
@@ -24,15 +26,9 @@ def collect_evidence(
     db: Session,
     exception_id: str,
 ) -> list[dict]:
-    """
-    Collect structured evidence associated with an exception.
-    """
-
     evidence_records = (
         db.query(Evidence)
-        .filter(
-            Evidence.exception_id == exception_id
-        )
+        .filter(Evidence.exception_id == exception_id)
         .order_by(Evidence.id)
         .all()
     )
@@ -52,19 +48,6 @@ def investigate_exception(
     db: Session,
     exception: ExceptionRecord,
 ) -> dict:
-    """
-    Perform and persist an AI-assisted investigation of a
-    reconciliation exception.
-
-    The investigation pipeline combines:
-    1. Deterministic reconciliation intelligence
-    2. Supporting financial evidence
-    3. Structured prompt construction
-    4. AI-generated structured investigation
-    5. Pydantic validation
-    6. Durable investigation persistence
-    """
-
     # ---------------------------------------------------------
     # 1. Deterministic intelligence
     # ---------------------------------------------------------
@@ -78,24 +61,10 @@ def investigate_exception(
     # 2. Collect evidence
     # ---------------------------------------------------------
 
-    evidence_records = (
-        db.query(Evidence)
-        .filter(
-            Evidence.exception_id == exception.exception_id
-        )
-        .order_by(Evidence.id)
-        .all()
+    evidence = collect_evidence(
+        db=db,
+        exception_id=exception.exception_id,
     )
-
-    evidence = [
-        {
-            "evidence_type": item.evidence_type,
-            "source_table": item.source_table,
-            "source_record_id": item.source_record_id,
-            "description": item.description,
-        }
-        for item in evidence_records
-    ]
 
     # ---------------------------------------------------------
     # 3. Build investigation prompt
@@ -113,15 +82,14 @@ def investigate_exception(
 
     try:
         provider = get_ai_provider()
+
         ai_response = provider.generate(prompt)
 
-        parsed_response = json.loads(ai_response)
+        # Parse potentially imperfect AI JSON output.
+        parsed_response = parse_ai_json_response(ai_response)
 
-        validated_report = (
-            AIInvestigationReport.model_validate(
-                parsed_response
-            )
-        )
+        # Strict schema validation.
+        validated_report = AIInvestigationReport.model_validate(parsed_response)
 
         result = {
             "exception_id": exception.exception_id,
@@ -144,19 +112,14 @@ def investigate_exception(
             "ai_provider_status": "UNAVAILABLE",
         }
 
-    except (
-        json.JSONDecodeError,
-        ValueError,
-    ) as error:
+    except ValueError as error:
         result = {
             "exception_id": exception.exception_id,
             "investigation_mode": "DETERMINISTIC_FALLBACK",
             "deterministic_analysis": intelligence,
             "evidence_count": len(evidence),
             "ai_analysis": None,
-            "fallback_reason": (
-                f"Invalid AI response: {str(error)}"
-            ),
+            "fallback_reason": f"Invalid AI response: {str(error)}",
             "ai_provider_status": "INVALID_RESPONSE",
         }
 
@@ -169,11 +132,7 @@ def investigate_exception(
         investigation_result=result,
     )
 
-    # Include the durable investigation identifier in the
-    # response so future APIs can retrieve investigation history.
-    result["investigation_id"] = (
-        persisted_investigation.investigation_id
-    )
+    result["investigation_id"] = persisted_investigation.investigation_id
 
     return result
 
@@ -181,15 +140,9 @@ def investigate_exception(
 def investigate_all_open_exceptions(
     db: Session,
 ) -> list[dict]:
-    """
-    Run AI-assisted investigation for all currently open exceptions.
-    """
-
     exceptions = (
         db.query(ExceptionRecord)
-        .filter(
-            ExceptionRecord.status == "OPEN"
-        )
+        .filter(ExceptionRecord.status == "OPEN")
         .order_by(ExceptionRecord.id)
         .all()
     )

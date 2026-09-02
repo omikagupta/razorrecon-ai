@@ -1,6 +1,8 @@
+
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from app.models.reconciliation import (
@@ -14,6 +16,7 @@ from app.services.reconciliation.run_manager import (
     complete_reconciliation_run,
     create_reconciliation_run,
     fail_reconciliation_run,
+    get_reconciliation_run,
     mark_run_running,
 )
 
@@ -39,10 +42,16 @@ def persist_reconciliation_results(
         CREATED/RUNNING
            ↓
         FAILED
+
+    The reconciliation run itself is committed before
+    financial processing begins so that a failed run
+    remains permanently auditable.
+
+    Financial result records are persisted atomically.
     """
 
     # ---------------------------------------------------------
-    # 1. Validate input
+    # 1. Validate input before creating a run
     # ---------------------------------------------------------
 
     if not results:
@@ -77,21 +86,24 @@ def persist_reconciliation_results(
         total_records=len(results),
     )
 
+    run = mark_run_running(
+        db=db,
+        run=run,
+    )
+
+    # Persist RUNNING state separately.
+    #
+    # This is intentional. If financial processing fails,
+    # the run record survives and can be transitioned to FAILED.
+    db.commit()
+    db.refresh(run)
+
+    matched_count = 0
+    exception_count = 0
+
     try:
         # -----------------------------------------------------
-        # 3. Mark run as RUNNING
-        # -----------------------------------------------------
-
-        run = mark_run_running(
-            db=db,
-            run=run,
-        )
-
-        matched_count = 0
-        exception_count = 0
-
-        # -----------------------------------------------------
-        # 4. Persist each reconciliation result
+        # 3. Process reconciliation results
         # -----------------------------------------------------
 
         for result in results:
@@ -106,7 +118,10 @@ def persist_reconciliation_results(
             # -------------------------------------------------
 
             if actual_amount is None:
-                difference = None
+                # A missing settlement represents zero actual
+                # settlement and therefore the full expected
+                # amount is financial exposure.
+                difference = Decimal(str(expected_amount))
             else:
                 difference = (
                     Decimal(str(expected_amount))
@@ -114,7 +129,11 @@ def persist_reconciliation_results(
                 )
 
             confidence = Decimal("1.0000")
-            match_method = "PAYMENT_ID"
+
+            match_method = result.get(
+                "match_method",
+                "PAYMENT_ID",
+            )
 
             # -------------------------------------------------
             # Persist reconciliation result
@@ -253,6 +272,62 @@ def persist_reconciliation_results(
                 )
 
             # -------------------------------------------------
+            # CURRENCY MISMATCH
+            # -------------------------------------------------
+
+            elif result_status == "CURRENCY_MISMATCH":
+                exception_count += 1
+
+                payment_currency = result.get(
+                    "payment_currency"
+                )
+                settlement_currency = result.get(
+                    "settlement_currency"
+                )
+
+                exception = ExceptionRecord(
+                    exception_id=(
+                        f"EXC_{uuid4().hex[:12].upper()}"
+                    ),
+                    transaction_id=transaction_id,
+                    exception_type="CURRENCY_MISMATCH",
+                    severity="HIGH",
+                    status="OPEN",
+                    confidence=confidence,
+                    description=(
+                        f"Payment currency "
+                        f"{payment_currency} does not match "
+                        f"settlement currency "
+                        f"{settlement_currency}."
+                    ),
+                    created_at=datetime.now(UTC),
+                )
+
+                db.add(exception)
+                db.flush()
+
+                generate_evidence(
+                    db=db,
+                    exception=exception,
+                )
+
+                db.add(
+                    AuditLog(
+                        transaction_id=transaction_id,
+                        actor="SYSTEM",
+                        action="EXCEPTION_CREATED",
+                        previous_state=None,
+                        new_state="OPEN",
+                        reason=(
+                            "Payment currency differs from "
+                            "settlement currency."
+                        ),
+                        confidence=confidence,
+                        created_at=datetime.now(UTC),
+                    )
+                )
+
+            # -------------------------------------------------
             # UNKNOWN STATUS
             # -------------------------------------------------
 
@@ -261,6 +336,12 @@ def persist_reconciliation_results(
                     "Unsupported reconciliation status: "
                     f"{result_status}"
                 )
+
+        # -----------------------------------------------------
+        # 4. Flush all financial records
+        # -----------------------------------------------------
+
+        db.flush()
 
         # -----------------------------------------------------
         # 5. Complete reconciliation run
@@ -274,17 +355,36 @@ def persist_reconciliation_results(
             exception_count=exception_count,
         )
 
+        # Commit the complete financial processing atomically.
+        db.commit()
+        db.refresh(run)
+
         return run
 
     except Exception:
         # -----------------------------------------------------
-        # 6. Roll back failed reconciliation changes
+        # 6. Roll back financial processing
         # -----------------------------------------------------
 
         db.rollback()
 
         # -----------------------------------------------------
-        # 7. Mark reconciliation run as FAILED
+        # 7. Reload persisted RUNNING run
+        # -----------------------------------------------------
+
+        run = get_reconciliation_run(
+            db=db,
+            run_id=run.run_id,
+        )
+
+        if run is None:
+            raise RuntimeError(
+                "Persisted reconciliation run could not be found "
+                "after processing failure."
+            )
+
+        # -----------------------------------------------------
+        # 8. Mark run as FAILED
         # -----------------------------------------------------
 
         try:
@@ -292,6 +392,10 @@ def persist_reconciliation_results(
                 db=db,
                 run=run,
             )
+
+            db.commit()
+            db.refresh(run)
+
         except Exception:
             db.rollback()
 

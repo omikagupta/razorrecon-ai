@@ -7,11 +7,9 @@ function Layout({ children }) {
 
       <main className="main-content">
         <header className="topbar">
-          <div>
-            <p className="breadcrumb">
-              Financial Operations / Reconciliation
-            </p>
-          </div>
+          <p className="breadcrumb">
+            Financial Operations / Reconciliation
+          </p>
 
           <div className="topbar-right">
             <div className="environment-badge">

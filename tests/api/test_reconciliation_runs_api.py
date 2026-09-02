@@ -25,7 +25,7 @@ class FakeRun:
 
 
 # =========================================================
-# TEST 1 — LIST RECONCILIATION RUNS
+# TEST 1 â€” LIST RECONCILIATION RUNS
 # =========================================================
 
 def test_list_reconciliation_runs(monkeypatch):
@@ -58,7 +58,7 @@ def test_list_reconciliation_runs(monkeypatch):
 
 
 # =========================================================
-# TEST 2 — GET RUN DETAILS
+# TEST 2 â€” GET RUN DETAILS
 # =========================================================
 
 def test_get_reconciliation_run_details(monkeypatch):
@@ -112,7 +112,7 @@ def test_get_reconciliation_run_details(monkeypatch):
 
 
 # =========================================================
-# TEST 3 — RUN NOT FOUND
+# TEST 3 â€” RUN NOT FOUND
 # =========================================================
 
 def test_reconciliation_run_not_found(monkeypatch):
@@ -139,7 +139,7 @@ def test_reconciliation_run_not_found(monkeypatch):
 
 
 # =========================================================
-# TEST 4 — RESPONSE STRUCTURE
+# TEST 4 â€” RESPONSE STRUCTURE
 # =========================================================
 
 def test_reconciliation_run_response_structure(monkeypatch):
@@ -186,3 +186,120 @@ def test_reconciliation_run_response_structure(monkeypatch):
     assert "summary" in data
     assert "status_distribution" in data
     assert "results" in data
+
+# =========================================================
+# TEST 5 â€” RUN RECONCILIATION SUCCESS
+# =========================================================
+
+def test_run_reconciliation_success(monkeypatch):
+
+    fake_results = [
+        {
+            "payment_id": "PAY_TEST_001",
+            "status": "MATCHED",
+            "payment_amount": "100.00",
+            "settlement_amount": "100.00",
+        }
+    ]
+
+    fake_run = FakeRun(
+        run_id="RUN_TEST_SUCCESS",
+        status="COMPLETED",
+        total_records=1,
+        matched_records=1,
+        exception_count=0,
+    )
+
+    monkeypatch.setattr(
+        "app.api.v1.reconciliation_runs.run_payment_settlement_reconciliation",
+        lambda db: fake_results,
+    )
+
+    monkeypatch.setattr(
+        "app.api.v1.reconciliation_runs.persist_reconciliation_results",
+        lambda db, results: fake_run,
+    )
+
+    response = client.post(
+        "/api/v1/reconciliation-runs"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["message"] == (
+        "Reconciliation completed successfully."
+    )
+
+    assert data["run"]["run_id"] == "RUN_TEST_SUCCESS"
+    assert data["run"]["status"] == "COMPLETED"
+    assert data["run"]["total_records"] == 1
+    assert data["run"]["matched_records"] == 1
+    assert data["run"]["exception_count"] == 0
+
+
+# =========================================================
+# TEST 6 â€” RECONCILIATION VALIDATION ERROR
+# =========================================================
+
+def test_run_reconciliation_validation_error(monkeypatch):
+
+    def raise_validation_error(db):
+        raise ValueError(
+            "Invalid reconciliation input."
+        )
+
+    monkeypatch.setattr(
+        "app.api.v1.reconciliation_runs.run_payment_settlement_reconciliation",
+        raise_validation_error,
+    )
+
+    response = client.post(
+        "/api/v1/reconciliation-runs"
+    )
+
+    assert response.status_code == 400
+
+    data = response.json()
+
+    assert data["error"] == (
+        "RECONCILIATION_VALIDATION_ERROR"
+    )
+
+    assert data["message"] == (
+        "Invalid reconciliation input."
+    )
+
+
+# =========================================================
+# TEST 7 â€” RECONCILIATION UNEXPECTED ERROR
+# =========================================================
+
+def test_run_reconciliation_unexpected_error(monkeypatch):
+
+    def raise_unexpected_error(db):
+        raise RuntimeError(
+            "Database connection failed."
+        )
+
+    monkeypatch.setattr(
+        "app.api.v1.reconciliation_runs.run_payment_settlement_reconciliation",
+        raise_unexpected_error,
+    )
+
+    response = client.post(
+        "/api/v1/reconciliation-runs"
+    )
+
+    assert response.status_code == 500
+
+    data = response.json()
+
+    assert data["error"] == (
+        "RECONCILIATION_FAILED"
+    )
+
+    assert data["message"] == (
+        "Database connection failed."
+    )
