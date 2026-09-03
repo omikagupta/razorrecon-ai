@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic import field_validator
@@ -59,10 +60,18 @@ class Settings(BaseSettings):
         ]
 
     model_config = SettingsConfigDict(
-        env_file=PROJECT_ROOT / ".env",
+        env_file=None,
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
 
-settings = Settings()
+_env = os.getenv("APP_ENV", "development").lower()
+
+env_file = {
+    "testing": PROJECT_ROOT / ".env.testing",
+    "development": PROJECT_ROOT / ".env",
+    "production": PROJECT_ROOT / ".env",
+}.get(_env, PROJECT_ROOT / ".env")
+
+settings = Settings(_env_file=env_file)

@@ -1,3 +1,10 @@
+import os
+
+os.environ["APP_ENV"] = "testing"
+os.environ["DATABASE_URL"] = (
+    "postgresql+psycopg2://razorrecon:razorrecon@127.0.0.1:5432/razorrecon"
+)
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

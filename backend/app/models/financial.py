@@ -55,7 +55,7 @@ class Order(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-       default=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -83,6 +83,11 @@ class Payment(Base):
     amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2),
         nullable=False,
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        default=Decimal("0.00"),
     )
     currency: Mapped[str] = mapped_column(
         String(3),
@@ -223,6 +228,6 @@ class Adjustment(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-       default=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )

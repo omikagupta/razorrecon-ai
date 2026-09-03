@@ -112,6 +112,7 @@ def ingest_transactions(
             order_id=order_id,
             merchant_id=transaction.merchant_id,
             amount=transaction.payment_amount,
+            tax_amount=transaction.tax_amount,
             currency=transaction.payment_currency,
             status=transaction.payment_status,
             created_at=transaction.payment_timestamp,
