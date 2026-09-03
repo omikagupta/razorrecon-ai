@@ -1,331 +1,123 @@
-
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  getDashboardAnalytics,
-  runReconciliation,
-} from "../services/api.js";
+import { AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert } from "lucide-react";
+
+import { getDashboardAnalytics, runReconciliation } from "../services/api.js";
+
+function percent(value) {
+  return `${((Number(value) || 0) * 100).toFixed(1)}%`;
+}
+
+function number(value) {
+  return Number(value || 0).toLocaleString("en-IN");
+}
+
+function currency(value) {
+  return `INR ${Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 function Dashboard() {
   const navigate = useNavigate();
-
   const [analytics, setAnalytics] = useState(null);
   const [error, setError] = useState(null);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState(null);
 
-  useEffect(() => {
-    async function loadDashboard() {
-      try {
-        setError(null);
-
-        const data = await getDashboardAnalytics();
-        setAnalytics(data);
-      } catch (err) {
-        setError(
-          err?.message || "Failed to load dashboard analytics."
-        );
-      }
+  const loadDashboard = useCallback(async () => {
+    try {
+      setError(null);
+      setAnalytics(await getDashboardAnalytics());
+    } catch (err) {
+      setError(err?.message || "Failed to load dashboard analytics.");
     }
-
-    loadDashboard();
   }, []);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
   async function handleRunReconciliation() {
     try {
       setRunning(true);
       setError(null);
-      setRunResult(null);
-
-      const result = await runReconciliation();
-
-      setRunResult(result);
-
-      // Refresh dashboard analytics after reconciliation
-      const updatedAnalytics =
-        await getDashboardAnalytics();
-
-      setAnalytics(updatedAnalytics);
+      setRunResult(await runReconciliation());
+      await loadDashboard();
     } catch (err) {
-      setError(
-        err?.message || "Failed to run reconciliation."
-      );
+      setError(err?.message || "Failed to run reconciliation.");
     } finally {
       setRunning(false);
     }
   }
 
-  if (error && !analytics) {
-    return (
-      <div className="placeholder-card">
-        <h2>Unable to load dashboard</h2>
-        <p>{error}</p>
-      </div>
-    );
+  if (!analytics && !error) {
+    return <div className="state-card">Loading reconciliation intelligence...</div>;
   }
 
   if (!analytics) {
     return (
-      <div className="placeholder-card">
-        Loading reconciliation intelligence...
+      <div className="state-card error-state">
+        <ShieldAlert size={36} />
+        <div><h2>Unable to load dashboard</h2><p>{error}</p><button className="secondary-button" onClick={loadDashboard}>Try again</button></div>
       </div>
     );
   }
 
-  const transactions = analytics.transactions || {};
-  const financials = analytics.financials || {};
-  const exceptions = analytics.exceptions || {};
-
-  const completedRun = runResult?.run || null;
+  const { transactions = {}, financials = {}, exceptions = {} } = analytics;
+  const completedRun = runResult?.run;
 
   return (
     <div>
-      {/* Page Header */}
       <div className="page-header">
         <div>
+          <div className="eyebrow">OPERATIONS OVERVIEW</div>
           <h1>Reconciliation Intelligence</h1>
-
-          <p>
-            Monitor financial reconciliation operations and
-            investigate transaction exceptions.
-          </p>
+          <p>Monitor settlement health, financial exposure, and investigation workload.</p>
         </div>
-
-        <button
-          className="primary-button"
-          onClick={handleRunReconciliation}
-          disabled={running}
-        >
-          {running
-            ? "Running Reconciliation..."
-            : "Run Reconciliation"}
-        </button>
+        <div className="page-actions">
+          <button className="icon-button" aria-label="Refresh dashboard" onClick={loadDashboard} disabled={running}><RefreshCw size={17} /></button>
+          <button className="primary-button" onClick={handleRunReconciliation} disabled={running}>{running ? "Running reconciliation..." : "Run reconciliation"}</button>
+        </div>
       </div>
 
-      {/* Reconciliation Success */}
+      {error && <div className="alert-card alert-danger"><AlertTriangle size={19} /><span>{error}</span></div>}
+
       {completedRun && (
-        <div className="placeholder-card">
-          <div className="section-header">
-            <div>
-              <h2>Reconciliation Completed</h2>
-
-              <p>
-                Run {completedRun.run_id} completed
-                successfully.
-              </p>
-            </div>
-
-            <span
-              className={`badge status-${String(
-                completedRun.status || ""
-              ).toLowerCase()}`}
-            >
-              {completedRun.status || "COMPLETED"}
-            </span>
-          </div>
-
-          <div className="severity-grid">
-            <div className="severity-item">
-              <span>Total Records</span>
-              <strong>
-                {completedRun.total_records ?? 0}
-              </strong>
-            </div>
-
-            <div className="severity-item">
-              <span>Matched</span>
-              <strong>
-                {completedRun.matched_records ?? 0}
-              </strong>
-            </div>
-
-            <div className="severity-item">
-              <span>Exceptions</span>
-              <strong>
-                {completedRun.exception_count ?? 0}
-              </strong>
-            </div>
-          </div>
-
-          <div
-            style={{
-              marginTop: "20px",
-              display: "flex",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              className="primary-button"
-              onClick={() =>
-                navigate(
-                  `/runs/${completedRun.run_id}`
-                )
-              }
-            >
-              View Run Details
-            </button>
-
-            <button
-              className="secondary-button"
-              onClick={() => navigate("/exceptions")}
-            >
-              View Exceptions
-            </button>
-          </div>
+        <div className="alert-card alert-success run-notice">
+          <CheckCircle2 size={20} />
+          <div><strong>Reconciliation completed</strong><span>{number(completedRun.matched_records)} matched · {number(completedRun.exception_count)} exceptions</span></div>
+          <button className="secondary-button" onClick={() => navigate(`/runs/${completedRun.run_id}`)}>View run</button>
         </div>
       )}
 
-      {/* Error */}
-      {error && analytics && (
-        <div className="placeholder-card">
-          <strong>Reconciliation failed</strong>
-
-          <p>{error}</p>
-        </div>
-      )}
-
-      {/* KPI Cards */}
       <div className="stats-grid">
-        <div className="stat-card">
-          <span>Total Exceptions</span>
-          <h2>{exceptions.total ?? 0}</h2>
-        </div>
-
-        <div className="stat-card">
-          <span>Open Exceptions</span>
-          <h2>{exceptions.open ?? 0}</h2>
-        </div>
-
-        <div className="stat-card">
-          <span>Resolution Rate</span>
-
-          <h2>
-            {(
-              (exceptions.resolution_rate ?? 0) *
-              100
-            ).toFixed(1)}
-            %
-          </h2>
-        </div>
-
-        <div className="stat-card">
-          <span>Financial Exposure</span>
-
-          <h2>
-            â‚¹{" "}
-            {Number(
-              financials.total_difference ?? 0
-            ).toLocaleString("en-IN", {
-              maximumFractionDigits: 2,
-            })}
-          </h2>
-        </div>
+        <div className="stat-card"><span>Financial exposure</span><h2>{currency(financials.total_difference)}</h2><small>Absolute unresolved variance</small></div>
+        <div className="stat-card"><span>Open exceptions</span><h2>{number(exceptions.open)}</h2><small>{number(exceptions.high_severity)} high · {number(exceptions.critical_severity)} critical</small></div>
+        <div className="stat-card"><span>Match rate</span><h2>{percent(transactions.match_rate)}</h2><small>{number(transactions.matched)} of {number(transactions.total)} transactions</small></div>
+        <div className="stat-card"><span>Resolution rate</span><h2>{percent(exceptions.resolution_rate)}</h2><small>{number(exceptions.resolved)} resolved</small></div>
       </div>
 
-      {/* Transaction Overview */}
-      <div className="placeholder-card">
-        <h2>Transaction Overview</h2>
-
-        <div className="severity-grid">
-          <div className="severity-item">
-            <span>Total Transactions</span>
-
-            <strong>
-              {transactions.total ?? 0}
-            </strong>
+      <div className="content-grid">
+        <section className="panel-card">
+          <div className="panel-header"><div><h2>Reconciliation health</h2><p>Current matching outcomes.</p></div><button className="secondary-button" onClick={() => navigate("/runs")}>View runs</button></div>
+          <div className="severity-grid">
+            <div className="severity-item"><span>Matched</span><strong>{number(transactions.matched)}</strong></div>
+            <div className="severity-item"><span>Amount mismatch</span><strong>{number(transactions.amount_mismatch)}</strong></div>
+            <div className="severity-item"><span>Missing settlement</span><strong>{number(transactions.missing_settlement)}</strong></div>
+            <div className="severity-item"><span>Total expected</span><strong>{currency(financials.total_expected_amount)}</strong></div>
           </div>
-
-          <div className="severity-item">
-            <span>Matched</span>
-
-            <strong>
-              {transactions.matched ?? 0}
-            </strong>
+        </section>
+        <section className="panel-card">
+          <div className="panel-header"><div><h2>Exception queue</h2><p>Prioritize unresolved settlement risk.</p></div><button className="secondary-button" onClick={() => navigate("/exceptions?status=OPEN")}>Review exceptions</button></div>
+          <div className="summary-list">
+            <div><span>Open</span><strong className="text-warning">{number(exceptions.open)}</strong></div>
+            <div><span>Escalated</span><strong className="text-danger">{number(exceptions.escalated)}</strong></div>
+            <div><span>Resolved</span><strong className="text-success">{number(exceptions.resolved)}</strong></div>
+            <div className="summary-total"><span>Total exceptions</span><strong>{number(exceptions.total)}</strong></div>
           </div>
-
-          <div className="severity-item">
-            <span>Amount Mismatch</span>
-
-            <strong>
-              {transactions.amount_mismatch ?? 0}
-            </strong>
-          </div>
-
-          <div className="severity-item">
-            <span>Missing Settlement</span>
-
-            <strong>
-              {transactions.missing_settlement ?? 0}
-            </strong>
-          </div>
-
-          <div className="severity-item">
-            <span>Match Rate</span>
-
-            <strong>
-              {(
-                (transactions.match_rate ?? 0) *
-                100
-              ).toFixed(1)}
-              %
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Exception Severity Distribution */}
-      <div className="placeholder-card">
-        <h2>Exception Severity Distribution</h2>
-
-        <div className="severity-grid">
-          <div className="severity-item">
-            <span>HIGH</span>
-
-            <strong>
-              {exceptions.high_severity ?? 0}
-            </strong>
-          </div>
-
-          <div className="severity-item">
-            <span>CRITICAL</span>
-
-            <strong>
-              {exceptions.critical_severity ?? 0}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Exception Status */}
-      <div className="placeholder-card">
-        <h2>Exception Status</h2>
-
-        <div className="severity-grid">
-          <div className="severity-item">
-            <span>OPEN</span>
-
-            <strong>
-              {exceptions.open ?? 0}
-            </strong>
-          </div>
-
-          <div className="severity-item">
-            <span>RESOLVED</span>
-
-            <strong>
-              {exceptions.resolved ?? 0}
-            </strong>
-          </div>
-
-          <div className="severity-item">
-            <span>ESCALATED</span>
-
-            <strong>
-              {exceptions.escalated ?? 0}
-            </strong>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   );

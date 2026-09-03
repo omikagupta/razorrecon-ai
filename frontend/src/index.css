@@ -425,6 +425,59 @@ select {
   cursor: not-allowed;
 }
 
+.secondary-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.secondary-button:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
+  background: var(--surface-soft);
+  border-color: #c9d0dd;
+  color: var(--text);
+}
+
+.icon-button {
+  width: 42px;
+  padding: 0;
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.alert-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 16px;
+  margin: 0 0 20px;
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+}
+
+.alert-danger { background: var(--danger-soft); border-color: #fecaca; color: #991b1b; }
+.alert-success { background: var(--success-soft); border-color: #bbf7d0; color: #166534; }
+.run-notice strong,
+.run-notice span { display: block; }
+.run-notice span { margin-top: 2px; font-size: 0.75rem; }
+.run-notice .secondary-button { margin-left: auto; }
+
 
 /* =========================================================
    STATS GRID
@@ -476,6 +529,13 @@ select {
   font-weight: 750;
 
   letter-spacing: -0.03em;
+}
+
+.stat-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
 }
 
 
@@ -841,6 +901,10 @@ tbody tr:hover {
 
   .page-header {
     flex-direction: column;
+  }
+
+  .page-actions {
+    width: 100%;
   }
 
   .filters-card {

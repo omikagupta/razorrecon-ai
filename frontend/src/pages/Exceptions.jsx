@@ -4,12 +4,16 @@ import {
   useState,
 } from "react";
 
-import { useNavigate } from "react-router-dom";
+import {
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 import { getExceptions } from "../services/api.js";
 
 function Exceptions() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -27,6 +31,17 @@ function Exceptions() {
 
   const [pageSize, setPageSize] =
     useState(10);
+
+  useEffect(() => {
+    const requestedStatus = searchParams
+      .get("status")
+      ?.trim()
+      .toUpperCase();
+
+    if (["OPEN", "RESOLVED", "ESCALATED"].includes(requestedStatus)) {
+      setStatusFilter(requestedStatus);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     async function loadExceptions() {

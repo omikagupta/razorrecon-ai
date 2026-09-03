@@ -2,309 +2,97 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   "http://localhost:8000/api/v1";
 
-/*
-|--------------------------------------------------------------------------
-| Dashboard
-|--------------------------------------------------------------------------
-*/
+const REQUEST_TIMEOUT_MS = 15_000;
 
-export async function getDashboardAnalytics() {
-  const response = await fetch(
-    `${API_BASE_URL}/dashboard/summary`
+async function request(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS
   );
 
-  if (!response.ok) {
-    throw new Error(
-      "Failed to fetch dashboard analytics"
-    );
-  }
-
-  return response.json();
-}
-
-export async function getExceptionTrends() {
-  const response = await fetch(
-    `${API_BASE_URL}/dashboard/exception-trends`
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      "Failed to fetch exception trends"
-    );
-  }
-
-  return response.json();
-}
-
-/*
-|--------------------------------------------------------------------------
-| Exceptions
-|--------------------------------------------------------------------------
-*/
-
-export async function getExceptions({
-  page = 1,
-  pageSize = 100,
-  status = null,
-  severity = null,
-  exceptionType = null,
-} = {}) {
-  const params = new URLSearchParams();
-
-  params.set("page", page);
-  params.set("page_size", pageSize);
-
-  if (status && status !== "ALL") {
-    params.set("status", status);
-  }
-
-  if (severity && severity !== "ALL") {
-    params.set("severity", severity);
-  }
-
-  if (exceptionType && exceptionType !== "ALL") {
-    params.set(
-      "exception_type",
-      exceptionType
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/exceptions?${params.toString()}`
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        "Failed to fetch exceptions"
-    );
-  }
-
-  return response.json();
-}
-
-export async function getExceptionDetails(
-  exceptionId
-) {
-  if (!exceptionId) {
-    throw new Error(
-      "Exception ID is required"
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/exceptions/${encodeURIComponent(
-      exceptionId
-    )}`
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        "Failed to fetch exception details"
-    );
-  }
-
-  return response.json();
-}
-
-export async function getInvestigationHistory(
-  exceptionId
-) {
-  if (!exceptionId) {
-    throw new Error(
-      "Exception ID is required"
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/exceptions/${encodeURIComponent(
-      exceptionId
-    )}/investigations`
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        "Failed to fetch investigation history"
-    );
-  }
-
-  return response.json();
-}
-
-/*
-|--------------------------------------------------------------------------
-| AI Investigation
-|--------------------------------------------------------------------------
-*/
-
-export async function investigateException(
-  exceptionId
-) {
-  if (!exceptionId) {
-    throw new Error(
-      "Exception ID is required"
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/exceptions/${encodeURIComponent(
-      exceptionId
-    )}/investigate`,
-    {
-      method: "POST",
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      signal: controller.signal,
       headers: {
-        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...options.headers,
       },
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(
+        payload?.detail?.message ||
+          payload?.detail ||
+          `Request failed (${response.status}).`
+      );
     }
-  );
 
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        errorData?.detail ||
-        "Failed to investigate exception"
-    );
-  }
-
-  return response.json();
-}
-
-/*
-|--------------------------------------------------------------------------
-| Human Review
-|--------------------------------------------------------------------------
-*/
-
-export async function reviewException(
-  exceptionId,
-  review
-) {
-  if (!exceptionId) {
-    throw new Error(
-      "Exception ID is required"
-    );
-  }
-
-  if (!review) {
-    throw new Error(
-      "Review data is required"
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/exceptions/${encodeURIComponent(
-      exceptionId
-    )}/review`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(review),
+    return payload;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("The request timed out. Please try again.");
     }
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        errorData?.detail ||
-        "Failed to submit human review"
-    );
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-
-  return response.json();
 }
 
-/*
-|--------------------------------------------------------------------------
-| Reconciliation Runs
-|--------------------------------------------------------------------------
-*/
+function exceptionPath(params) {
+  const query = new URLSearchParams({
+    page: String(params.page ?? 1),
+    page_size: String(params.pageSize ?? 20),
+  });
 
-export async function getReconciliationRuns() {
-  const response = await fetch(
-    `${API_BASE_URL}/reconciliation-runs`
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        "Failed to fetch reconciliation runs"
-    );
+  if (params.status && params.status !== "ALL") query.set("status", params.status);
+  if (params.severity && params.severity !== "ALL") query.set("severity", params.severity);
+  if (params.exceptionType && params.exceptionType !== "ALL") {
+    query.set("exception_type", params.exceptionType);
   }
 
-  return response.json();
+  return `/exceptions?${query}`;
 }
 
-export async function getReconciliationRunDetails(
-  runId
-) {
-  if (!runId) {
-    throw new Error(
-      "Run ID is required"
-    );
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/reconciliation-runs/${encodeURIComponent(
-      runId
-    )}`
-  );
-
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
-
-    throw new Error(
-      errorData?.detail?.message ||
-        "Failed to fetch reconciliation run details"
-    );
-  }
-
-  return response.json();
+function requiredId(value, label) {
+  if (!value) throw new Error(`${label} is required`);
+  return encodeURIComponent(value);
 }
 
-export async function runReconciliation() {
-  const response = await fetch(
-    `${API_BASE_URL}/reconciliation-runs`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
+export const getDashboardAnalytics = () => request("/dashboard/summary");
+export const getExceptionTrends = () => request("/dashboard/exception-trends");
+export const getExceptions = (params = {}) => request(exceptionPath(params));
+export const getReconciliationRuns = () => request("/reconciliation-runs");
+export const runReconciliation = () => request("/reconciliation-runs", {
+  method: "POST",
+});
 
-  if (!response.ok) {
-    const errorData =
-      await response.json().catch(() => null);
+export function getExceptionDetails(exceptionId) {
+  return request(`/exceptions/${requiredId(exceptionId, "Exception ID")}`);
+}
 
-    throw new Error(
-      errorData?.detail?.message ||
-        errorData?.detail ||
-        "Failed to run reconciliation"
-    );
-  }
+export function getInvestigationHistory(exceptionId) {
+  return request(`/exceptions/${requiredId(exceptionId, "Exception ID")}/investigations`);
+}
 
-  return response.json();
+export function investigateException(exceptionId) {
+  return request(`/exceptions/${requiredId(exceptionId, "Exception ID")}/investigate`, {
+    method: "POST",
+  });
+}
+
+export function reviewException(exceptionId, review) {
+  if (!review) throw new Error("Review data is required");
+
+  return request(`/exceptions/${requiredId(exceptionId, "Exception ID")}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(review),
+  });
+}
+
+export function getReconciliationRunDetails(runId) {
+  return request(`/reconciliation-runs/${requiredId(runId, "Run ID")}`);
 }
