@@ -24,9 +24,9 @@ const navigation = [
   },
 ];
 
-function Sidebar() {
+function Sidebar({ isOpen = false, onClose }) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? "open" : ""}`}>
       <div className="brand">
         <div className="brand-icon">
           <ShieldCheck size={21} strokeWidth={2.2} />
@@ -49,6 +49,7 @@ function Sidebar() {
               key={item.path}
               to={item.path}
               end={item.path === "/"}
+              onClick={onClose}
               className={({ isActive }) =>
                 `nav-item ${isActive ? "active" : ""}`
               }
